@@ -3,18 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "main": "electron/main.cjs",
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
   "scripts": {
     "backup": "powershell -ExecutionPolicy Bypass -File .\\scripts\\create-backup.ps1",
     "dev": "concurrently -n backend,frontend -c yellow,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:frontend": "npm run dev --workspace frontend -- --port 3001",
-    "dev:backend": "npm run dev --workspace backend",
-    "build:frontend": "npm run build --workspace frontend",
-    "serve:frontend": "npm run build --workspace frontend && npm run start --workspace frontend -- --port 3001",
-    "start:backend": "npm run start --workspace backend",
+    "dev:frontend": "npm --prefix frontend run dev -- --port 3001",
+    "dev:backend": "npm --prefix backend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "serve:frontend": "npm --prefix frontend run build && npm --prefix frontend run start -- --port 3001",
+    "start:backend": "npm --prefix backend run start",
     "electron": "wait-on tcp:3001 tcp:4000 && electron ."
   },
   "devDependencies": {
