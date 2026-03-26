@@ -1,0 +1,60 @@
+:root {
+  color-scheme: light;
+  --brand-blue: #00a9e1;
+  --brand-blue-hover: #008fc2;
+  --brand-violet: #6b2e82;
+  --brand-violet-dark: #4a2569;
+  --brand-blue-dark: #294180;
+  --brand-blue-soft: rgba(0, 169, 225, 0.1);
+  --brand-blue-soft-strong: rgba(0, 169, 225, 0.18);
+  --brand-violet-soft: rgba(107, 46, 130, 0.1);
+  --brand-violet-soft-strong: rgba(107, 46, 130, 0.18);
+  --brand-violet-dark-soft: rgba(74, 37, 105, 0.12);
+  --brand-violet-dark-soft-strong: rgba(74, 37, 105, 0.18);
+  --brand-blue-dark-soft: rgba(41, 65, 128, 0.1);
+  --brand-blue-dark-soft-strong: rgba(41, 65, 128, 0.16);
+  --bg: #f3f7fc;
+  --surface: rgba(255, 255, 255, 0.92);
+  --surface-strong: #ffffff;
+  --surface-alt: #f5f8fd;
+  --text: #171f3b;
+  --muted: #64718a;
+  --border: rgba(41, 65, 128, 0.12);
+  --border-strong: rgba(41, 65, 128, 0.2);
+  --panel-border: rgba(41, 65, 128, 0.08);
+  --panel-border-strong: rgba(107, 46, 130, 0.12);
+  --primary: var(--brand-blue);
+  --primary-strong: var(--brand-blue-hover);
+  --primary-soft: var(--brand-blue-soft);
+  --secondary: var(--brand-violet);
+  --secondary-strong: var(--brand-violet-dark);
+  --secondary-soft: var(--brand-violet-soft);
+  --accent: var(--brand-violet);
+  --accent-strong: var(--brand-violet-dark);
+  --accent-soft: var(--brand-violet-soft);
+  --info: var(--brand-blue-dark);
+  --success: var(--brand-blue-dark);
+  --warning: var(--brand-violet);
+  --danger: var(--brand-violet-dark);
+  --focus-ring: rgba(0, 169, 225, 0.28);
+  --interactive-gradient: linear-gradient(135deg, var(--brand-blue), var(--brand-violet));
+  --interactive-gradient-strong: linear-gradient(
+    135deg,
+    var(--brand-blue-hover),
+    var(--brand-blue),
+    var(--brand-violet)
+  );
+  --interactive-gradient-deep: linear-gradient(
+    135deg,
+    var(--brand-violet-dark),
+    var(--brand-blue-dark),
+    var(--brand-blue)
+  );
+  --shadow-lg: 0 26px 70px rgba(41, 65, 128, 0.1);
+  --shadow-md: 0 14px 36px rgba(41, 65, 128, 0.08);
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-md: 18px;
+  --radius-sm: 14px;
+  --content-max-width: 1760px;
+}
