@@ -1,4 +1,4 @@
-const BRAND_LOGO_SRC = "/assets/logos/logo.png?v=20260324";
+const BRAND_LOGO_SRC = "/assets/logos/logo.png?v=20260328";
 
 export default function BrandLogo({
   alt = "Lokify Logo",
