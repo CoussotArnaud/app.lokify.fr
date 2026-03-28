@@ -1,72 +1,95 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import AppShell from "../../components/app-shell";
+import ModalShell from "../../components/modal-shell";
 import Panel from "../../components/panel";
 import StatusPill from "../../components/status-pill";
 import { useAuth } from "../../components/auth-provider";
 import { apiRequest } from "../../lib/api";
 import { canAccessOperationalModules, getWorkspaceHomePath } from "../../lib/access";
-import { formatCurrency, formatDate } from "../../lib/date";
-
-const subscriptionStatusMeta = {
-  inactive: { label: "Inactive", tone: "danger" },
-  active: { label: "Active", tone: "success" },
-  past_due: { label: "En retard", tone: "warning" },
-  canceled: { label: "Annule", tone: "neutral" },
-  trial: { label: "Essai", tone: "info" },
-};
+import { formatCurrency, formatDate, formatDateTime } from "../../lib/date";
+import { getSubscriptionStatusMeta } from "../../lib/provider-admin";
 
 const formatDateValue = (value) => (value ? formatDate(value) : "A definir");
+const formatDateTimeValue = (value) => (value ? formatDateTime(value) : "A definir");
+const formatIntervalLabel = (interval) => (interval === "month" ? "mois" : interval);
 
-function BillingPageFallback() {
-  return (
-    <AppShell>
-      <div className="page-stack">
-        <Panel
-          title="Chargement de la facturation"
-          description="LOKIFY prepare la zone abonnement et la configuration SaaS."
-        >
-          <div className="empty-state">
-            <strong>Preparation de la zone abonnement</strong>
-            <span>Les informations arrivent dans quelques instants.</span>
-          </div>
-        </Panel>
-      </div>
-    </AppShell>
-  );
-}
+const saasLifecycleMeta = {
+  inactive: { label: "Inactif", tone: "neutral" },
+  active: { label: "Actif", tone: "success" },
+  pending: { label: "En attente", tone: "info" },
+};
 
-function BillingPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+const planCopyById = {
+  essential: "L'essentiel pour lancer votre activite.",
+  pro: "Plus de structure pour piloter au quotidien.",
+  premium: "Le socle complet pour une activite en croissance.",
+};
+
+const buildSubscriptionLeadDraft = (profile, plan) => ({
+  planId: plan?.id || "",
+  firstName: profile?.first_name || "",
+  lastName: profile?.last_name || "",
+  company: profile?.company_name || profile?.full_name || "",
+  email: profile?.email || "",
+  phone: profile?.phone || "",
+  message: plan ? `Bonjour, je souhaite etre recontacte pour la formule ${plan.name}.` : "",
+});
+
+const getPlanActionLabel = ({
+  isCurrentPlan,
+  isCurrentPlanActive,
+  isRequestedPlan,
+  hasCurrentPlan,
+}) => {
+  if (isCurrentPlanActive) {
+    return "Formule actuelle";
+  }
+
+  if (isRequestedPlan) {
+    return "Demande envoyee";
+  }
+
+  if (!hasCurrentPlan) {
+    return "Choisir la formule";
+  }
+
+  if (isCurrentPlan) {
+    return "Demander l'activation";
+  }
+
+  return "Demander le changement";
+};
+
+const getPlanShortCopy = (plan) => planCopyById[plan?.id] || plan?.description || "";
+
+export default function BillingPage() {
   const { user, refreshUser } = useAuth();
   const [overview, setOverview] = useState(null);
-  const [customerSettings, setCustomerSettings] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [submittingPlanId, setSubmittingPlanId] = useState("");
-  const [cancelingRenewal, setCancelingRenewal] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  const returnKeyRef = useRef("");
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [contactForm, setContactForm] = useState(null);
+  const [submittingContact, setSubmittingContact] = useState(false);
 
-  const loadBillingState = async () => {
-    setLoading(true);
+  const loadBillingState = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+    }
 
     try {
-      const [billingResponse, customerPaymentsResponse] = await Promise.all([
-        apiRequest("/lokify-billing/overview"),
-        apiRequest("/customer-payments/settings"),
-      ]);
-
-      setOverview(billingResponse);
-      setCustomerSettings(customerPaymentsResponse);
+      const response = await apiRequest("/lokify-billing/overview");
+      setOverview(response);
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -74,331 +97,972 @@ function BillingPageContent() {
     loadBillingState();
   }, []);
 
-  useEffect(() => {
-    const checkoutState = searchParams.get("checkout");
-    const sessionId = searchParams.get("session_id");
-    const returnKey = `${checkoutState || "none"}:${sessionId || "none"}`;
+  const currentUser = overview?.currentUser || user;
+  const lokifySubscription = overview?.lokifySubscription || currentUser?.lokifyBilling || {};
+  const plans = overview?.plans || [];
+  const planChangeRequest = lokifySubscription.planChangeRequest || null;
+  const history = lokifySubscription.history || [];
+  const currentPlanId = lokifySubscription.lokifyPlanId || "";
+  const currentPlan = plans.find((plan) => plan.id === currentPlanId) || null;
+  const currentSubscriptionStatus = String(
+    lokifySubscription.lokifySubscriptionStatus || "inactive"
+  ).toLowerCase();
+  const lifecycleMeta =
+    saasLifecycleMeta[String(lokifySubscription.saasLifecycleStatus || "inactive").toLowerCase()] ||
+    saasLifecycleMeta.inactive;
+  const subscriptionMeta = getSubscriptionStatusMeta(
+    lokifySubscription.lokifySubscriptionStatus
+  );
+  const hasOperationalAccess = canAccessOperationalModules(currentUser);
+  const currentPlanLabel = lokifySubscription.lokifyPlanName || "Aucune formule";
+  const currentPlanPriceLabel = currentPlan
+    ? `${formatCurrency(currentPlan.price)} / ${formatIntervalLabel(currentPlan.interval)}`
+    : lokifySubscription.lokifyPlanName
+      ? "Formule en place"
+      : "Activation requise";
+  const pendingRequestPriceLabel = planChangeRequest
+    ? planChangeRequest.requestedPlanPrice === null
+      ? "Tarif a definir"
+      : `${formatCurrency(planChangeRequest.requestedPlanPrice)} / ${formatIntervalLabel(
+          planChangeRequest.requestedPlanInterval
+        )}`
+    : "";
 
-    if (returnKeyRef.current === returnKey) {
-      return;
-    }
+  const subscriptionCards = [
+    {
+      id: "plan",
+      label: "Formule",
+      type: "value",
+      value: currentPlanLabel,
+      helper: currentPlanPriceLabel,
+    },
+    {
+      id: "account",
+      label: "Compte",
+      type: "status",
+      value: lifecycleMeta.label,
+      tone: lifecycleMeta.tone,
+      helper: "Statut SaaS",
+    },
+    {
+      id: "subscription",
+      label: "Abonnement",
+      type: "status",
+      value: subscriptionMeta.label,
+      tone: subscriptionMeta.tone,
+      helper: lokifySubscription.lokifySubscriptionEndAt
+        ? `Echeance ${formatDateValue(lokifySubscription.lokifySubscriptionEndAt)}`
+        : "Facturation a definir",
+    },
+    {
+      id: "software",
+      label: "Logiciel",
+      type: "status",
+      value: hasOperationalAccess ? "Actif" : "Verrouille",
+      tone: hasOperationalAccess ? "success" : "warning",
+      helper: hasOperationalAccess ? "Modules ouverts" : "Activation requise",
+    },
+  ];
 
-    if (checkoutState === "cancel") {
-      returnKeyRef.current = returnKey;
-      setFeedback({
-        type: "error",
-        message: "Le parcours de souscription a ete annule avant validation.",
-      });
-      return;
-    }
+  const subscriptionDetails = [
+    {
+      id: "start",
+      label: "Debut de periode",
+      value: formatDateValue(lokifySubscription.lokifySubscriptionStartAt),
+    },
+    {
+      id: "end",
+      label: "Prochaine echeance",
+      value: formatDateValue(lokifySubscription.lokifySubscriptionEndAt),
+    },
+    {
+      id: "activation",
+      label: "Activation",
+      value: "Mise en place accompagnee",
+    },
+    {
+      id: "support",
+      label: "Support",
+      value: "Ticket cree a chaque demande",
+    },
+  ];
 
-    if (checkoutState !== "success" || !sessionId) {
-      return;
-    }
+  const activationSteps = [
+    {
+      id: "choose",
+      label: "1. Choix",
+      value: "Selectionnez la formule adaptee.",
+    },
+    {
+      id: "request",
+      label: "2. Demande",
+      value: "Envoyez vos coordonnees depuis le compte.",
+    },
+    {
+      id: "followup",
+      label: "3. Finalisation",
+      value: "Lokify vous recontacte pour activer l'abonnement.",
+    },
+  ];
 
-    returnKeyRef.current = returnKey;
-
-    const finalizeCheckout = async () => {
-      try {
-        const response = await apiRequest(
-          `/lokify-billing/checkout-sessions/${sessionId}/finalize`,
-          {
-            method: "POST",
-          }
-        );
-
-        setOverview((current) => ({
-          ...(current || {}),
-          currentUser: response.currentUser,
-          lokifySubscription: response.currentUser?.lokifyBilling,
-        }));
-        await refreshUser();
-        await loadBillingState();
-        setFeedback({
-          type: "success",
-          message: "La souscription a bien ete prise en compte.",
-        });
-      } catch (error) {
-        setFeedback({ type: "error", message: error.message });
-      }
-    };
-
-    finalizeCheckout();
-  }, [refreshUser, searchParams]);
-
-  const handlePlanCheckout = async (planId) => {
-    setSubmittingPlanId(planId);
+  const openContactModal = (plan) => {
+    setSelectedPlan(plan);
+    setContactForm(buildSubscriptionLeadDraft(currentUser, plan));
     setFeedback(null);
-
-    try {
-      const response = await apiRequest("/lokify-billing/checkout-session", {
-        method: "POST",
-        body: { planId },
-      });
-
-      if (response.provider === "stripe" && response.checkoutUrl) {
-        window.location.href = response.checkoutUrl;
-        return;
-      }
-
-      router.push(response.redirectPath || "/abonnement");
-    } catch (error) {
-      setFeedback({ type: "error", message: error.message });
-    } finally {
-      setSubmittingPlanId("");
-    }
+    setContactModalOpen(true);
   };
 
-  const handleCancelRenewal = async () => {
-    setCancelingRenewal(true);
+  const closeContactModal = (force = false) => {
+    if (submittingContact && !force) {
+      return;
+    }
+
+    setContactModalOpen(false);
+    setSelectedPlan(null);
+    setContactForm(null);
+  };
+
+  const handleContactFieldChange = (field, value) => {
+    setContactForm((current) => ({
+      ...(current || {}),
+      [field]: value,
+    }));
+  };
+
+  const handleContactRequest = async (event) => {
+    event.preventDefault();
+
+    if (!selectedPlan || !contactForm) {
+      return;
+    }
+
+    setSubmittingContact(true);
     setFeedback(null);
 
     try {
-      const response = await apiRequest("/lokify-billing/subscription/cancel-renewal", {
+      const response = await apiRequest("/lokify-billing/contact-request", {
         method: "POST",
+        body: {
+          planId: selectedPlan.id,
+          ...contactForm,
+        },
       });
 
-      setOverview((current) => ({
-        ...(current || {}),
-        currentUser: response.currentUser,
-        lokifySubscription: response.currentUser?.lokifyBilling,
-      }));
       await refreshUser();
-      await loadBillingState();
+      await loadBillingState({ silent: true });
       setFeedback({
         type: "success",
-        message:
-          "Le renouvellement automatique est annule. Votre acces reste actif jusqu'a la fin de la periode payee.",
+        message: `Votre demande pour la formule ${response.requestedPlan.name} a ete envoyee. L'equipe Lokify vous recontacte pour finaliser l'activation.`,
       });
+      closeContactModal(true);
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
     } finally {
-      setCancelingRenewal(false);
+      setSubmittingContact(false);
     }
   };
-
-  const currentUser = overview?.currentUser || user;
-  const lokifySubscription = overview?.lokifySubscription || user?.lokifyBilling || {};
-  const plans = overview?.plans || [];
-  const statusMeta =
-    subscriptionStatusMeta[lokifySubscription.lokifySubscriptionStatus] ||
-    subscriptionStatusMeta.inactive;
-  const hasOperationalAccess = canAccessOperationalModules(currentUser);
-  const canCancelRenewal =
-    ["active", "trial"].includes(lokifySubscription.lokifySubscriptionStatus) &&
-    !lokifySubscription.cancelAtPeriodEnd;
 
   return (
     <AppShell>
-      <div className="page-stack">
-        <div className="page-header">
-          <div>
-            <p className="eyebrow">Facturation & abonnement</p>
-            <h3>Pilotez l'abonnement SaaS du prestataire sans melanger les encaissements clients.</h3>
-            <p>
-              Cette zone gere uniquement l'abonnement Lokify facture par le super admin.
-              Les paiements clients du prestataire restent separes.
-            </p>
+      <div className="billing-page">
+        <div className="page-stack billing-page-stack">
+          <div className="page-header">
+            <div>
+              <p className="eyebrow">Facturation / abonnement</p>
+              <h3>Votre abonnement Lokify.</h3>
+              <p>
+                Comparez les formules, suivez l&apos;activation et gardez uniquement
+                l&apos;essentiel sous la main.
+              </p>
+            </div>
+            <div className="page-header-actions">
+              {hasOperationalAccess ? (
+                <Link href={getWorkspaceHomePath(currentUser)} className="button ghost">
+                  Retour au logiciel
+                </Link>
+              ) : null}
+              <Link href="/support" className="button ghost">
+                Contacter le support
+              </Link>
+            </div>
           </div>
+
+          {feedback ? (
+            <p className={`feedback ${feedback.type || "error"}`}>{feedback.message}</p>
+          ) : null}
+
+          {loading ? (
+            <Panel
+              className="billing-section"
+              title="Chargement de l'abonnement"
+              description="Preparation de votre espace de facturation."
+            >
+              <div className="empty-state billing-empty-state">
+                <strong>Chargement en cours</strong>
+                <span>Les informations d&apos;abonnement arrivent dans quelques instants.</span>
+              </div>
+            </Panel>
+          ) : (
+            <>
+              <Panel
+                className="billing-section"
+                title="Votre abonnement"
+                description="L'essentiel sur votre formule et l'acces au logiciel."
+              >
+                <div className="billing-status-grid">
+                  {subscriptionCards.map((card) => (
+                    <article key={card.id} className="billing-status-card">
+                      <span className="billing-micro-label">{card.label}</span>
+                      {card.type === "status" ? (
+                        <StatusPill tone={card.tone}>{card.value}</StatusPill>
+                      ) : (
+                        <strong>{card.value}</strong>
+                      )}
+                      <small>{card.helper}</small>
+                    </article>
+                  ))}
+                </div>
+
+                {!hasOperationalAccess ? (
+                  <div className="billing-inline-card billing-inline-card-soft">
+                    <div>
+                      <span className="billing-micro-label">Acces logiciel</span>
+                      <strong>Compte en attente</strong>
+                      <p>Les modules restent verrouilles jusqu'a l'activation de la formule.</p>
+                    </div>
+                  </div>
+                ) : null}
+
+                <details className="billing-accordion">
+                  <summary>Voir les details</summary>
+                  <div className="billing-detail-grid">
+                    {subscriptionDetails.map((detail) => (
+                      <article key={detail.id} className="billing-detail-card">
+                        <span className="billing-micro-label">{detail.label}</span>
+                        <strong>{detail.value}</strong>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+              </Panel>
+
+              <Panel
+                className="billing-section"
+                title="Activation"
+                description="Choisissez une formule puis envoyez votre demande."
+              >
+                <div className="billing-inline-grid">
+                  <article className="billing-inline-card">
+                    <div>
+                      <span className="billing-micro-label">Activation guidee</span>
+                      <strong>Choix, demande, rappel Lokify</strong>
+                      <p>Le paiement en ligne est provisoirement remplace par une mise en place assistee.</p>
+                    </div>
+                  </article>
+
+                  {planChangeRequest ? (
+                    <article className="billing-inline-card billing-inline-card-accent">
+                      <div>
+                        <span className="billing-micro-label">Demande en cours</span>
+                        <strong>
+                          {planChangeRequest.requestedPlanName || "Formule a confirmer"}
+                        </strong>
+                        <p>Envoyee le {formatDateTimeValue(planChangeRequest.requestedAt)}.</p>
+                      </div>
+                      <span className="billing-inline-meta">{pendingRequestPriceLabel}</span>
+                    </article>
+                  ) : (
+                    <article className="billing-inline-card billing-inline-card-soft">
+                      <div>
+                        <span className="billing-micro-label">Support</span>
+                        <strong>Accompagnement dedie</strong>
+                        <p>Une demande d'abonnement cree automatiquement un suivi support.</p>
+                      </div>
+                    </article>
+                  )}
+                </div>
+
+                <details className="billing-accordion">
+                  <summary>Voir le parcours d'activation</summary>
+                  <div className="billing-step-grid">
+                    {activationSteps.map((step) => (
+                      <article key={step.id} className="billing-step-card">
+                        <span className="billing-micro-label">{step.label}</span>
+                        <strong>{step.value}</strong>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+
+                <div className="billing-plan-grid">
+                  {plans.map((plan) => {
+                    const isCurrentPlan = currentPlanId === plan.id;
+                    const isCurrentPlanActive =
+                      isCurrentPlan && ["active", "trial"].includes(currentSubscriptionStatus);
+                    const isRequestedPlan = planChangeRequest?.requestedPlanId === plan.id;
+                    const previewHighlights = (plan.highlights || []).slice(0, 2);
+                    const extraHighlights = Math.max((plan.highlights || []).length - 2, 0);
+                    const buttonLabel = getPlanActionLabel({
+                      isCurrentPlan,
+                      isCurrentPlanActive,
+                      isRequestedPlan,
+                      hasCurrentPlan: Boolean(currentPlanId),
+                    });
+
+                    return (
+                      <article
+                        key={plan.id}
+                        className={`billing-plan-card ${
+                          isCurrentPlan ? "is-current" : ""
+                        } ${isRequestedPlan ? "is-requested" : ""}`.trim()}
+                      >
+                        <div className="billing-plan-head">
+                          <div>
+                            <span className="billing-micro-label">Formule</span>
+                            <strong>{plan.name}</strong>
+                          </div>
+                          {isCurrentPlanActive ? (
+                            <StatusPill tone="success">Active</StatusPill>
+                          ) : isRequestedPlan ? (
+                            <StatusPill tone="info">En cours</StatusPill>
+                          ) : null}
+                        </div>
+
+                        <div className="billing-plan-price">
+                          <strong>{formatCurrency(plan.price)}</strong>
+                          <span>/ {formatIntervalLabel(plan.interval)}</span>
+                        </div>
+
+                        <p className="billing-plan-copy">{getPlanShortCopy(plan)}</p>
+
+                        <div className="billing-plan-tags">
+                          {previewHighlights.map((highlight) => (
+                            <span key={highlight} className="billing-feature-chip">
+                              {highlight}
+                            </span>
+                          ))}
+                          {extraHighlights ? (
+                            <span className="billing-feature-chip billing-feature-chip-muted">
+                              +{extraHighlights}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {(plan.highlights || []).length ? (
+                          <details className="billing-accordion billing-plan-accordion">
+                            <summary>Voir les points inclus</summary>
+                            <div className="billing-plan-detail-list">
+                              {(plan.highlights || []).map((highlight) => (
+                                <span key={highlight} className="billing-feature-chip">
+                                  {highlight}
+                                </span>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
+
+                        <button
+                          type="button"
+                          className={`button ${isCurrentPlanActive ? "ghost" : "primary"}`}
+                          onClick={() => openContactModal(plan)}
+                          disabled={isCurrentPlanActive || isRequestedPlan}
+                        >
+                          {buttonLabel}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </Panel>
+
+              <Panel
+                className="billing-section"
+                title="Historique"
+                description="Les derniers jalons utiles."
+              >
+                {history.length ? (
+                  <div className="billing-history-list">
+                    {history.map((item) => (
+                      <details key={item.id} className="billing-history-item">
+                        <summary>
+                          <div className="billing-history-head">
+                            <strong>{item.label}</strong>
+                            <span>{formatDateTimeValue(item.at)}</span>
+                          </div>
+                        </summary>
+                        <p className="muted-text">{item.description}</p>
+                      </details>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state billing-empty-state">
+                    <strong>Aucun jalon disponible</strong>
+                    <span>L'historique se remplira au fil des activations et des changements.</span>
+                  </div>
+                )}
+              </Panel>
+            </>
+          )}
         </div>
 
-        {feedback ? (
-          <p className={`feedback ${feedback.type === "success" ? "success" : "error"}`}>
-            {feedback.message}
-          </p>
-        ) : null}
-
-        {loading ? (
-          <Panel
-            title="Chargement de la facturation"
-            description="LOKIFY consolide le statut de l'abonnement et la configuration de paiement."
-          >
-            <div className="empty-state">
-              <strong>Preparation de la zone abonnement</strong>
-              <span>Les informations arrivent dans quelques instants.</span>
-            </div>
-          </Panel>
-        ) : (
-          <>
-            <Panel
-              title="Statut actuel"
-              description="Une lecture claire de la formule active, de l'echeance et du niveau d'acces."
-              actions={
-                hasOperationalAccess ? (
-                  <Link href={getWorkspaceHomePath(currentUser)} className="button ghost">
-                    Acceder au logiciel
-                  </Link>
-                ) : null
-              }
+        <ModalShell
+          open={contactModalOpen}
+          title={
+            selectedPlan
+              ? `Demande de mise en place - ${selectedPlan.name}`
+              : "Demande de mise en place"
+          }
+          description="Laissez vos coordonnees pour etre recontacte rapidement."
+          size="lg"
+          onClose={closeContactModal}
+          footer={
+            <>
+              <button
+                type="button"
+                className="button ghost"
+                onClick={closeContactModal}
+                disabled={submittingContact}
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                className="button primary"
+                form="lokify-subscription-contact-form"
+                disabled={submittingContact}
+              >
+                {submittingContact ? "Envoi..." : "Etre recontacte"}
+              </button>
+            </>
+          }
+        >
+          {selectedPlan && contactForm ? (
+            <form
+              id="lokify-subscription-contact-form"
+              className="form-grid"
+              onSubmit={handleContactRequest}
             >
-              <div className="detail-grid">
-                <article className="detail-card">
-                  <strong>Formule actuelle</strong>
-                  <span className="muted-text">
-                    {lokifySubscription.lokifyPlanName || "Aucun abonnement actif"}
-                  </span>
-                </article>
-                <article className="detail-card">
-                  <strong>Statut</strong>
-                  <StatusPill tone={statusMeta.tone}>{statusMeta.label}</StatusPill>
-                </article>
-                <article className="detail-card">
-                  <strong>Date de debut</strong>
-                  <span className="muted-text">
-                    {formatDateValue(lokifySubscription.lokifySubscriptionStartAt)}
-                  </span>
-                </article>
-                <article className="detail-card">
-                  <strong>Fin / prochaine echeance</strong>
-                  <span className="muted-text">
-                    {formatDateValue(lokifySubscription.lokifySubscriptionEndAt)}
-                  </span>
-                </article>
-              </div>
-
-              <div className="row-actions billing-status-actions">
-                <StatusPill tone={lokifySubscription.subscriptionLocked ? "warning" : "success"}>
-                  {lokifySubscription.subscriptionLocked
-                    ? "Acces logiciel restreint"
-                    : "Acces logiciel debloque"}
-                </StatusPill>
-                <StatusPill tone="info">
-                  Environnement {lokifySubscription.billingEnvironment || "test"}
-                </StatusPill>
-                {lokifySubscription.cancelAtPeriodEnd ? (
-                  <StatusPill tone="warning">Renouvellement annule a echeance</StatusPill>
-                ) : null}
-              </div>
-
-              <div className="row-actions billing-status-actions">
-                <button
-                  type="button"
-                  className="button ghost"
-                  onClick={handleCancelRenewal}
-                  disabled={!canCancelRenewal || cancelingRenewal}
-                >
-                  {cancelingRenewal
-                    ? "Annulation..."
-                    : canCancelRenewal
-                      ? "Annuler le renouvellement automatique"
-                      : "Renouvellement deja annule ou abonnement inactif"}
-                </button>
-              </div>
-
-              {!hasOperationalAccess ? (
-                <div className="empty-state billing-inline-state">
-                  <strong>Abonnement requis</strong>
-                  <span>
-                    Tant que le statut Lokify n'est pas actif, les modules principaux du logiciel
-                    restent verrouilles.
-                  </span>
+              <div className="subscription-contact-summary">
+                <div>
+                  <span className="eyebrow">Formule choisie</span>
+                  <strong>{selectedPlan.name}</strong>
+                  <p>
+                    {formatCurrency(selectedPlan.price)} / {formatIntervalLabel(selectedPlan.interval)}
+                  </p>
                 </div>
-              ) : null}
-            </Panel>
-
-            <Panel
-              title="Formules Lokify"
-              description="Choisissez la formule SaaS du prestataire. Le paiement Stripe super admin est totalement separe du Stripe client."
-            >
-              <div className="plan-choice-grid">
-                {plans.map((plan) => {
-                  const isCurrentPlan = lokifySubscription.lokifyPlanId === plan.id;
-                  const isBusy = submittingPlanId === plan.id;
-
-                  return (
-                    <article
-                      key={plan.id}
-                      className={`plan-choice-card ${isCurrentPlan ? "active" : ""}`.trim()}
-                    >
-                      <div className="row-actions">
-                        <strong>{plan.name}</strong>
-                        {isCurrentPlan ? (
-                          <StatusPill tone="success">Formule actuelle</StatusPill>
-                        ) : null}
-                      </div>
-                      <div className="plan-choice-price">
-                        <strong>{formatCurrency(plan.price)}</strong>
-                        <span className="muted-text">
-                          {" "}
-                          / {plan.interval === "month" ? "mois" : plan.interval}
-                        </span>
-                      </div>
-                      <p className="muted-text">{plan.description}</p>
-                      <div className="tag-list">
-                        {plan.highlights.map((highlight) => (
-                          <span key={highlight} className="tag-chip">
-                            {highlight}
-                          </span>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        className={`button ${isCurrentPlan ? "ghost" : "primary"}`}
-                        onClick={() => handlePlanCheckout(plan.id)}
-                        disabled={isBusy}
-                      >
-                        {isBusy
-                          ? "Preparation..."
-                          : isCurrentPlan
-                            ? "Relancer la souscription"
-                            : "Choisir cette formule"}
-                      </button>
-                    </article>
-                  );
-                })}
-              </div>
-            </Panel>
-
-            <Panel
-              title="Paiements clients du prestataire"
-              description="Rappel de la configuration Stripe locale du prestataire pour encaisser ses propres clients."
-            >
-              <div className="detail-grid">
-                <article className="detail-card">
-                  <strong>Module actif</strong>
-                  <StatusPill tone={customerSettings?.customerPayments?.customerPaymentsEnabled ? "success" : "neutral"}>
-                    {customerSettings?.customerPayments?.customerPaymentsEnabled ? "Oui" : "Non"}
-                  </StatusPill>
-                </article>
-                <article className="detail-card">
-                  <strong>Mode Stripe</strong>
-                  <span className="muted-text">
-                    {customerSettings?.customerPayments?.customerStripeMode || "test"}
-                  </span>
-                </article>
-                <article className="detail-card">
-                  <strong>Compte Stripe</strong>
-                  <span className="muted-text">
-                    {customerSettings?.customerPayments?.customerStripeAccountStatus ||
-                      "not_configured"}
-                  </span>
-                </article>
-                <article className="detail-card">
-                  <strong>Secret key cote front</strong>
-                  <span className="muted-text">Jamais exposee</span>
-                </article>
+                <p className="muted-text">{getPlanShortCopy(selectedPlan)}</p>
               </div>
 
-              <p className="muted-text">
-                {customerSettings?.message ||
-                  "La configuration Stripe client du prestataire reste isolee et geree dans Parametres."}
-              </p>
+              <div className="form-grid two-columns">
+                <div className="field">
+                  <label htmlFor="subscription-contact-first-name">Prenom</label>
+                  <input
+                    id="subscription-contact-first-name"
+                    value={contactForm.firstName}
+                    onChange={(event) =>
+                      handleContactFieldChange("firstName", event.target.value)
+                    }
+                    required
+                  />
+                </div>
 
-              <Link href="/parametres" className="button ghost">
-                Ouvrir les reglages Stripe prestataire
-              </Link>
-            </Panel>
-          </>
-        )}
+                <div className="field">
+                  <label htmlFor="subscription-contact-last-name">Nom</label>
+                  <input
+                    id="subscription-contact-last-name"
+                    value={contactForm.lastName}
+                    onChange={(event) =>
+                      handleContactFieldChange("lastName", event.target.value)
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="subscription-contact-company">Societe</label>
+                  <input
+                    id="subscription-contact-company"
+                    value={contactForm.company}
+                    onChange={(event) =>
+                      handleContactFieldChange("company", event.target.value)
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="subscription-contact-email">Email</label>
+                  <input
+                    id="subscription-contact-email"
+                    type="email"
+                    value={contactForm.email}
+                    onChange={(event) => handleContactFieldChange("email", event.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="subscription-contact-phone">Telephone</label>
+                  <input
+                    id="subscription-contact-phone"
+                    value={contactForm.phone}
+                    onChange={(event) => handleContactFieldChange("phone", event.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="subscription-contact-plan">Formule choisie</label>
+                  <input
+                    id="subscription-contact-plan"
+                    value={selectedPlan.name}
+                    disabled
+                    aria-disabled="true"
+                  />
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="subscription-contact-message">Message complementaire</label>
+                <textarea
+                  id="subscription-contact-message"
+                  value={contactForm.message}
+                  onChange={(event) => handleContactFieldChange("message", event.target.value)}
+                  placeholder="Precisez vos besoins ou vos questions."
+                />
+              </div>
+            </form>
+          ) : null}
+        </ModalShell>
+
+        <style jsx global>{`
+          .billing-page {
+            display: grid;
+            gap: 1.8rem;
+          }
+
+          .billing-page .billing-page-stack {
+            gap: 1.8rem;
+          }
+
+          .billing-page .page-header {
+            align-items: flex-end;
+            gap: 1.8rem;
+          }
+
+          .billing-page .page-header h3 {
+            max-width: 12ch;
+            font-size: clamp(1.75rem, 2vw, 2.3rem);
+            letter-spacing: -0.03em;
+          }
+
+          .billing-page .page-header p {
+            max-width: 56ch;
+            margin-top: 0.35rem;
+          }
+
+          .billing-page .page-header-actions {
+            align-items: center;
+            gap: 0.7rem;
+          }
+
+          .billing-page .billing-section {
+            border: 1px solid rgba(23, 31, 59, 0.06);
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.88);
+            box-shadow: 0 18px 44px rgba(23, 31, 59, 0.05);
+          }
+
+          .billing-page .billing-section .panel-header,
+          .billing-page .billing-section .panel-footer {
+            padding: 1.2rem 1.25rem 0;
+          }
+
+          .billing-page .billing-section .panel-body {
+            padding: 1rem 1.25rem 1.25rem;
+            display: grid;
+            gap: 1rem;
+          }
+
+          .billing-page .billing-section .panel-header h3 {
+            font-size: 1.02rem;
+            letter-spacing: -0.01em;
+          }
+
+          .billing-page .billing-section .panel-header p {
+            max-width: 52ch;
+            margin-top: 0.18rem;
+            font-size: 0.9rem;
+            line-height: 1.5;
+          }
+
+          .billing-page .feedback {
+            margin: 0;
+            border-radius: 16px;
+            padding: 0.85rem 0.95rem;
+          }
+
+          .billing-page .button {
+            min-height: 38px;
+            padding: 0.52rem 0.82rem;
+            border-radius: 12px;
+            font-size: 0.84rem;
+            box-shadow: none;
+          }
+
+          .billing-page .button.primary {
+            color: #ffffff;
+            background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+            box-shadow: 0 10px 24px rgba(107, 46, 130, 0.18);
+          }
+
+          .billing-page .button.ghost {
+            color: var(--text);
+            background: transparent;
+            border-color: rgba(23, 31, 59, 0.12);
+          }
+
+          .billing-page .button:hover {
+            transform: translateY(-1px);
+          }
+          .billing-page .status-pill {
+            min-height: 24px;
+            padding: 0.16rem 0.5rem;
+            border: 1px solid transparent;
+            border-radius: 999px;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+          }
+
+          .billing-page .billing-status-grid,
+          .billing-page .billing-plan-grid,
+          .billing-page .billing-detail-grid,
+          .billing-page .billing-step-grid {
+            display: grid;
+            gap: 0.85rem;
+          }
+
+          .billing-page .billing-status-grid {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          }
+
+          .billing-page .billing-detail-grid,
+          .billing-page .billing-step-grid {
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+          }
+
+          .billing-page .billing-plan-grid {
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+          }
+
+          .billing-page .billing-status-card,
+          .billing-page .billing-detail-card,
+          .billing-page .billing-step-card,
+          .billing-page .billing-inline-card,
+          .billing-page .billing-plan-card,
+          .billing-page .billing-history-item {
+            border: 1px solid rgba(23, 31, 59, 0.08);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 8px 18px rgba(23, 31, 59, 0.03);
+            transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease,
+              background 0.18s ease;
+          }
+
+          .billing-page .billing-status-card:hover,
+          .billing-page .billing-detail-card:hover,
+          .billing-page .billing-step-card:hover,
+          .billing-page .billing-inline-card:hover,
+          .billing-page .billing-plan-card:hover,
+          .billing-page .billing-history-item:hover {
+            transform: translateY(-2px);
+            border-color: rgba(23, 31, 59, 0.12);
+            box-shadow: 0 16px 30px rgba(23, 31, 59, 0.06);
+          }
+
+          .billing-page .billing-status-card,
+          .billing-page .billing-detail-card,
+          .billing-page .billing-step-card {
+            display: grid;
+            gap: 0.32rem;
+            min-height: 94px;
+            padding: 0.82rem 0.88rem;
+          }
+
+          .billing-page .billing-status-card strong,
+          .billing-page .billing-detail-card strong,
+          .billing-page .billing-step-card strong {
+            font-size: 0.96rem;
+            line-height: 1.35;
+          }
+
+          .billing-page .billing-status-card small {
+            color: var(--muted);
+            font-size: 0.79rem;
+            line-height: 1.4;
+          }
+
+          .billing-page .billing-micro-label {
+            display: inline-flex;
+            align-items: center;
+            width: fit-content;
+            font-size: 0.69rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+          }
+
+          .billing-page .billing-inline-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.9rem;
+          }
+
+          .billing-page .billing-inline-card {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.95rem 1rem;
+          }
+
+          .billing-page .billing-inline-card p,
+          .billing-page .billing-plan-copy {
+            margin: 0.18rem 0 0;
+            color: var(--muted);
+            line-height: 1.5;
+          }
+
+          .billing-page .billing-inline-card-accent {
+            border-color: rgba(107, 46, 130, 0.14);
+            background: linear-gradient(
+              180deg,
+              rgba(255, 255, 255, 0.96),
+              rgba(250, 246, 253, 0.94)
+            );
+          }
+
+          .billing-page .billing-inline-card-soft {
+            background: rgba(248, 250, 255, 0.92);
+          }
+
+          .billing-page .billing-inline-meta {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 32px;
+            padding: 0.35rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(23, 31, 59, 0.05);
+            color: var(--text);
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+          }
+
+          .billing-page .billing-accordion {
+            border-top: 1px solid rgba(23, 31, 59, 0.08);
+            padding-top: 0.15rem;
+          }
+
+          .billing-page .billing-accordion summary,
+          .billing-page .billing-history-item summary {
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.8rem;
+            cursor: pointer;
+            color: var(--text);
+            font-weight: 700;
+          }
+
+          .billing-page .billing-accordion summary::-webkit-details-marker,
+          .billing-page .billing-history-item summary::-webkit-details-marker {
+            display: none;
+          }
+
+          .billing-page .billing-accordion summary {
+            padding: 0.45rem 0;
+            font-size: 0.88rem;
+          }
+
+          .billing-page .billing-accordion summary::after,
+          .billing-page .billing-history-item summary::after {
+            content: "+";
+            flex: none;
+            color: var(--muted);
+            font-size: 1rem;
+            line-height: 1;
+          }
+
+          .billing-page .billing-accordion[open] summary::after,
+          .billing-page .billing-history-item[open] summary::after {
+            content: "-";
+          }
+
+          .billing-page .billing-plan-card {
+            display: grid;
+            gap: 0.85rem;
+            padding: 1rem;
+          }
+
+          .billing-page .billing-plan-card.is-current {
+            border-color: rgba(107, 46, 130, 0.16);
+            box-shadow: 0 16px 34px rgba(107, 46, 130, 0.08);
+          }
+
+          .billing-page .billing-plan-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.8rem;
+          }
+
+          .billing-page .billing-plan-head strong {
+            display: block;
+            margin-top: 0.22rem;
+            font-size: 1rem;
+          }
+
+          .billing-page .billing-plan-price {
+            display: flex;
+            align-items: baseline;
+            gap: 0.25rem;
+          }
+
+          .billing-page .billing-plan-price strong {
+            font-size: 1.5rem;
+            letter-spacing: -0.04em;
+          }
+
+          .billing-page .billing-plan-price span {
+            color: var(--muted);
+            font-size: 0.85rem;
+          }
+
+          .billing-page .billing-plan-tags,
+          .billing-page .billing-plan-detail-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+          }
+
+          .billing-page .billing-feature-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 28px;
+            padding: 0.24rem 0.58rem;
+            border-radius: 999px;
+            background: rgba(23, 31, 59, 0.05);
+            color: var(--text);
+            font-size: 0.75rem;
+            font-weight: 600;
+          }
+
+          .billing-page .billing-feature-chip-muted {
+            color: var(--muted);
+          }
+
+          .billing-page .billing-plan-accordion {
+            margin-top: -0.2rem;
+            border-top: 0;
+            padding-top: 0;
+          }
+
+          .billing-page .billing-plan-accordion summary {
+            padding: 0;
+            font-size: 0.8rem;
+            color: var(--muted);
+          }
+
+          .billing-page .billing-history-list {
+            display: grid;
+            gap: 0.75rem;
+          }
+
+          .billing-page .billing-history-item {
+            padding: 0.88rem 0.95rem;
+          }
+
+          .billing-page .billing-history-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            width: 100%;
+          }
+
+          .billing-page .billing-history-head span {
+            color: var(--muted);
+            font-size: 0.8rem;
+            white-space: nowrap;
+          }
+
+          .billing-page .billing-history-item p {
+            margin: 0.75rem 0 0;
+            padding-top: 0.75rem;
+            border-top: 1px solid rgba(23, 31, 59, 0.08);
+            line-height: 1.55;
+          }
+
+          .billing-page .billing-empty-state {
+            border: 1px dashed rgba(23, 31, 59, 0.1);
+            border-radius: 18px;
+            background: rgba(248, 250, 255, 0.84);
+            padding: 1rem;
+          }
+
+          .billing-page .subscription-contact-summary {
+            border-radius: 18px;
+            border: 1px solid rgba(23, 31, 59, 0.08);
+            background: rgba(248, 250, 255, 0.84);
+            box-shadow: none;
+          }
+
+          @media (max-width: 960px) {
+            .billing-page .billing-inline-grid {
+              grid-template-columns: 1fr;
+            }
+          }
+
+          @media (max-width: 720px) {
+            .billing-page .billing-page-stack {
+              gap: 1.2rem;
+            }
+
+            .billing-page .billing-section .panel-header,
+            .billing-page .billing-section .panel-footer {
+              padding: 1rem 1rem 0;
+            }
+
+            .billing-page .billing-section .panel-body {
+              padding: 0.92rem 1rem 1rem;
+            }
+
+            .billing-page .billing-status-grid,
+            .billing-page .billing-detail-grid,
+            .billing-page .billing-step-grid,
+            .billing-page .billing-plan-grid {
+              grid-template-columns: 1fr;
+            }
+
+            .billing-page .billing-plan-head,
+            .billing-page .billing-inline-card,
+            .billing-page .billing-history-head {
+              display: grid;
+            }
+
+            .billing-page .billing-inline-meta,
+            .billing-page .billing-history-head span {
+              white-space: normal;
+            }
+          }
+        `}</style>
       </div>
     </AppShell>
-  );
-}
-
-export default function BillingPage() {
-  return (
-    <Suspense fallback={<BillingPageFallback />}>
-      <BillingPageContent />
-    </Suspense>
   );
 }
