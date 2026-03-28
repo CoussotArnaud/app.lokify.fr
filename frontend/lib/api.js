@@ -1,6 +1,12 @@
 import { getSessionToken } from "./session";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+const normalizedApiUrl = rawApiUrl.replace(/\/+$/, "");
+export const API_URL = /\/api$/i.test(normalizedApiUrl)
+  ? normalizedApiUrl
+  : `${normalizedApiUrl}/api`;
+
+const normalizePath = (path) => (String(path || "").startsWith("/") ? path : `/${path}`);
 
 export const apiRequest = async (
   path,
@@ -17,7 +23,7 @@ export const apiRequest = async (
     requestHeaders.Authorization = `Bearer ${sessionToken}`;
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${API_URL}${normalizePath(path)}`, {
     method,
     headers: requestHeaders,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -31,9 +37,12 @@ export const apiRequest = async (
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.message || "Une erreur est survenue.");
+    const error = new Error(data.message || "Une erreur est survenue.");
+    error.statusCode = response.status;
+    error.code = data.code || null;
+    error.details = data.details || null;
+    throw error;
   }
 
   return data;
 };
-
