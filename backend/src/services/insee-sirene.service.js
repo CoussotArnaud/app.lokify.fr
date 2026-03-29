@@ -507,8 +507,7 @@ export const previewSiretVerification = async (siret) => {
       lookupStatus: "format_validated",
       checkedAt: new Date().toISOString(),
       company: null,
-      message:
-        "Numero de SIRET valide. Verification INSEE detaillee indisponible sur cet environnement.",
+      message: "Numéro de SIRET valide.",
     };
   }
 
