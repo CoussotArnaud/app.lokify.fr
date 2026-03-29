@@ -68,16 +68,16 @@ export default function SuperAdminDashboard() {
             <p className="eyebrow">Super admin</p>
             <h3>Dashboard Lokify</h3>
             <p>
-              Vue de pilotage globale de la plateforme, avec les revenus Lokify, l&apos;etat du parc
+              Vue de pilotage globale de la plateforme, avec les revenus Lokify, l&apos;état du parc
               de prestataires et un raccourci direct vers chaque fiche.
             </p>
           </div>
           <div className="page-header-actions">
             <Link href="/prestataires" className="button ghost">
-              Gerer les prestataires
+              Gérer les prestataires
             </Link>
             <Link href="/abonnements" className="button ghost">
-              Gerer les abonnements
+              Gérer les abonnements
             </Link>
           </div>
         </div>
@@ -89,21 +89,21 @@ export default function SuperAdminDashboard() {
             icon="bill"
             label="CA mensuel Lokify"
             value={formatCurrency(overview?.metrics?.lokifyMonthlyRevenue || 0)}
-            helper="Revenu plateforme mensuel base sur les abonnements actifs."
+            helper="Revenu plateforme mensuel basé sur les abonnements actifs."
             tone="success"
           />
           <MetricCard
             icon="chart"
             label="CA annuel Lokify"
             value={formatCurrency(overview?.metrics?.lokifyAnnualRevenue || 0)}
-            helper="Projection annuelle des revenus Lokify actuellement engages."
+            helper="Projection annuelle des revenus Lokify actuellement engagés."
             tone="info"
           />
           <MetricCard
             icon="users"
             label="Prestataires actifs"
             value={overview?.metrics?.activeProvidersCurrently || 0}
-            helper="Comptes prestataires actifs et exploitables a date."
+            helper="Comptes prestataires actifs et exploitables à date."
             tone="success"
           />
         </section>
@@ -111,12 +111,12 @@ export default function SuperAdminDashboard() {
         <section className="split-layout split-1-1">
           <Panel
             title="Recherche rapide prestataire"
-            description="Raccourci express par nom, email, SIRET ou societe pour ouvrir la bonne fiche sans quitter le dashboard."
+            description="Raccourci express par nom, e-mail, SIRET ou société pour ouvrir la bonne fiche sans quitter le dashboard."
             actions={
               <SearchInput
                 value={search}
                 onChange={setSearch}
-                placeholder="Rechercher un prestataire, un email ou un SIRET"
+                placeholder="Rechercher un prestataire, un e-mail ou un SIRET"
               />
             }
           >
@@ -138,7 +138,7 @@ export default function SuperAdminDashboard() {
                         <strong>{provider.company_name || provider.full_name}</strong>
                         <span className="muted-text">{provider.email}</span>
                         <span className="muted-text">
-                          {provider.siret || "SIRET non renseigne"}
+                          {provider.siret || "SIRET non renseigné"}
                         </span>
                       </div>
                       <div className="row-actions">
@@ -153,7 +153,7 @@ export default function SuperAdminDashboard() {
                     <span className="muted-text">
                       {provider.security?.lastInvitationSentAt
                         ? `Dernier lien ${formatAdminDateTime(provider.security.lastInvitationSentAt)}`
-                        : "Aucun envoi recent"}
+                        : "Aucun envoi récent"}
                     </span>
                   </Link>
                 );
@@ -162,12 +162,12 @@ export default function SuperAdminDashboard() {
               {!highlightedProviders.length ? (
                 <div className="empty-state">
                   <strong>
-                    {loading ? "Chargement des prestataires..." : "Aucun resultat sur cette recherche"}
+                    {loading ? "Chargement des prestataires..." : "Aucun résultat sur cette recherche"}
                   </strong>
                   <span>
                     {loading
-                      ? "Le dashboard recupere les comptes et leurs statuts."
-                      : "Essayez un autre nom, email, SIRET ou revenez sur la page Prestataires."}
+                      ? "Le dashboard récupère les comptes et leurs statuts."
+                      : "Essayez un autre nom, e-mail, SIRET ou revenez sur la page Prestataires."}
                   </span>
                 </div>
               ) : null}
@@ -176,13 +176,13 @@ export default function SuperAdminDashboard() {
 
           <Panel
             title="Points de pilotage"
-            description="Les signaux utiles a garder sous les yeux pour suivre l'activite SaaS."
+            description="Les signaux utiles à garder sous les yeux pour suivre l'activité SaaS."
           >
             <div className="detail-grid">
               <article className="detail-card">
                 <strong>Invitations en attente</strong>
                 <span className="muted-text">
-                  {overview?.metrics?.invitedProviders || 0} compte(s) non actives.
+                  {overview?.metrics?.invitedProviders || 0} compte(s) non activés.
                 </span>
               </article>
               <article className="detail-card">
@@ -194,13 +194,13 @@ export default function SuperAdminDashboard() {
               <article className="detail-card">
                 <strong>Alertes paiement</strong>
                 <span className="muted-text">
-                  {overview?.metrics?.paymentAlerts || 0} dossier(s) a surveiller.
+                  {overview?.metrics?.paymentAlerts || 0} dossier(s) à surveiller.
                 </span>
               </article>
               <article className="detail-card">
-                <strong>Stripe prestataire configure</strong>
+                <strong>Stripe prestataire configuré</strong>
                 <span className="muted-text">
-                  {overview?.metrics?.providerStripeConfigured || 0} compte(s) connectes.
+                  {overview?.metrics?.providerStripeConfigured || 0} compte(s) connectés.
                 </span>
               </article>
             </div>

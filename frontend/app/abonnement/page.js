@@ -13,8 +13,8 @@ import { canAccessOperationalModules, getWorkspaceHomePath } from "../../lib/acc
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/date";
 import { getSubscriptionStatusMeta } from "../../lib/provider-admin";
 
-const formatDateValue = (value) => (value ? formatDate(value) : "A definir");
-const formatDateTimeValue = (value) => (value ? formatDateTime(value) : "A definir");
+const formatDateValue = (value) => (value ? formatDate(value) : "À définir");
+const formatDateTimeValue = (value) => (value ? formatDateTime(value) : "À définir");
 const formatIntervalLabel = (interval) => (interval === "month" ? "mois" : interval);
 
 const saasLifecycleMeta = {
@@ -24,9 +24,9 @@ const saasLifecycleMeta = {
 };
 
 const planCopyById = {
-  essential: "L'essentiel pour lancer votre activite.",
-  pro: "Plus de structure pour piloter au quotidien.",
-  premium: "Le socle complet pour une activite en croissance.",
+  essential: "L'essentiel pour lancer votre activité.",
+  pro: "Une formule complète pour piloter au quotidien.",
+  premium: "L'offre la plus complète pour accompagner votre croissance.",
 };
 
 const buildSubscriptionLeadDraft = (profile, plan) => ({
@@ -36,7 +36,7 @@ const buildSubscriptionLeadDraft = (profile, plan) => ({
   company: profile?.company_name || profile?.full_name || "",
   email: profile?.email || "",
   phone: profile?.phone || "",
-  message: plan ? `Bonjour, je souhaite etre recontacte pour la formule ${plan.name}.` : "",
+  message: plan ? `Bonjour, je souhaite être recontacté pour la formule ${plan.name}.` : "",
 });
 
 const getPlanActionLabel = ({
@@ -50,7 +50,7 @@ const getPlanActionLabel = ({
   }
 
   if (isRequestedPlan) {
-    return "Demande envoyee";
+    return "Demande envoyée";
   }
 
   if (!hasCurrentPlan) {
@@ -103,6 +103,7 @@ export default function BillingPage() {
   const planChangeRequest = lokifySubscription.planChangeRequest || null;
   const history = lokifySubscription.history || [];
   const currentPlanId = lokifySubscription.lokifyPlanId || "";
+  const hasChosenPlan = Boolean(currentPlanId);
   const currentPlan = plans.find((plan) => plan.id === currentPlanId) || null;
   const currentSubscriptionStatus = String(
     lokifySubscription.lokifySubscriptionStatus || "inactive"
@@ -122,7 +123,7 @@ export default function BillingPage() {
       : "Activation requise";
   const pendingRequestPriceLabel = planChangeRequest
     ? planChangeRequest.requestedPlanPrice === null
-      ? "Tarif a definir"
+      ? "Tarif à définir"
       : `${formatCurrency(planChangeRequest.requestedPlanPrice)} / ${formatIntervalLabel(
           planChangeRequest.requestedPlanInterval
         )}`
@@ -142,7 +143,7 @@ export default function BillingPage() {
       type: "status",
       value: lifecycleMeta.label,
       tone: lifecycleMeta.tone,
-      helper: "Statut SaaS",
+      helper: "Statut du compte",
     },
     {
       id: "subscription",
@@ -151,14 +152,14 @@ export default function BillingPage() {
       value: subscriptionMeta.label,
       tone: subscriptionMeta.tone,
       helper: lokifySubscription.lokifySubscriptionEndAt
-        ? `Echeance ${formatDateValue(lokifySubscription.lokifySubscriptionEndAt)}`
-        : "Facturation a definir",
+        ? `Échéance ${formatDateValue(lokifySubscription.lokifySubscriptionEndAt)}`
+        : "Facturation à définir",
     },
     {
       id: "software",
       label: "Logiciel",
       type: "status",
-      value: hasOperationalAccess ? "Actif" : "Verrouille",
+      value: hasOperationalAccess ? "Actif" : "Verrouillé",
       tone: hasOperationalAccess ? "success" : "warning",
       helper: hasOperationalAccess ? "Modules ouverts" : "Activation requise",
     },
@@ -167,23 +168,23 @@ export default function BillingPage() {
   const subscriptionDetails = [
     {
       id: "start",
-      label: "Debut de periode",
+      label: "Début de période",
       value: formatDateValue(lokifySubscription.lokifySubscriptionStartAt),
     },
     {
       id: "end",
-      label: "Prochaine echeance",
+      label: "Prochaine échéance",
       value: formatDateValue(lokifySubscription.lokifySubscriptionEndAt),
     },
     {
       id: "activation",
       label: "Activation",
-      value: "Mise en place accompagnee",
+      value: "Mise en place accompagnée",
     },
     {
       id: "support",
       label: "Support",
-      value: "Ticket cree a chaque demande",
+      value: "Ticket créé à chaque demande",
     },
   ];
 
@@ -191,12 +192,12 @@ export default function BillingPage() {
     {
       id: "choose",
       label: "1. Choix",
-      value: "Selectionnez la formule adaptee.",
+      value: "Sélectionnez la formule adaptée.",
     },
     {
       id: "request",
       label: "2. Demande",
-      value: "Envoyez vos coordonnees depuis le compte.",
+      value: "Envoyez vos coordonnées depuis le compte.",
     },
     {
       id: "followup",
@@ -252,7 +253,7 @@ export default function BillingPage() {
       await loadBillingState({ silent: true });
       setFeedback({
         type: "success",
-        message: `Votre demande pour la formule ${response.requestedPlan.name} a ete envoyee. L'equipe Lokify vous recontacte pour finaliser l'activation.`,
+        message: `Votre demande pour la formule ${response.requestedPlan.name} a été envoyée. L'équipe Lokify vous recontacte pour finaliser l'activation.`,
       });
       closeContactModal(true);
     } catch (error) {
@@ -271,8 +272,8 @@ export default function BillingPage() {
               <p className="eyebrow">Facturation / abonnement</p>
               <h3>Votre abonnement Lokify.</h3>
               <p>
-                Comparez les formules, suivez l&apos;activation et gardez uniquement
-                l&apos;essentiel sous la main.
+                Comparez les formules, choisissez la plus adaptée et suivez l&apos;activation sans
+                confusion.
               </p>
             </div>
             <div className="page-header-actions">
@@ -295,7 +296,7 @@ export default function BillingPage() {
             <Panel
               className="billing-section"
               title="Chargement de l'abonnement"
-              description="Preparation de votre espace de facturation."
+              description="Préparation de votre espace de facturation."
             >
               <div className="empty-state billing-empty-state">
                 <strong>Chargement en cours</strong>
@@ -306,57 +307,31 @@ export default function BillingPage() {
             <>
               <Panel
                 className="billing-section"
-                title="Votre abonnement"
-                description="L'essentiel sur votre formule et l'acces au logiciel."
+                title={hasChosenPlan ? "Changer ou faire évoluer votre formule" : "Choisissez votre formule"}
+                description={
+                  hasChosenPlan
+                    ? "Comparez les offres et demandez l'activation ou l'évolution de votre abonnement."
+                    : "Choisissez d'abord votre formule. Une fois votre demande envoyée, Lokify vous recontacte pour finaliser l'activation."
+                }
               >
-                <div className="billing-status-grid">
-                  {subscriptionCards.map((card) => (
-                    <article key={card.id} className="billing-status-card">
-                      <span className="billing-micro-label">{card.label}</span>
-                      {card.type === "status" ? (
-                        <StatusPill tone={card.tone}>{card.value}</StatusPill>
-                      ) : (
-                        <strong>{card.value}</strong>
-                      )}
-                      <small>{card.helper}</small>
+                {!hasChosenPlan ? (
+                  <div className="billing-offer-intro">
+                    <article className="billing-inline-card billing-inline-card-accent">
+                      <div>
+                        <span className="billing-micro-label">Nouveau compte</span>
+                        <strong>Aucun abonnement actif pour le moment</strong>
+                        <p>Commencez par choisir la formule qui correspond à votre activité ci-dessous.</p>
+                      </div>
                     </article>
-                  ))}
-                </div>
-
-                {!hasOperationalAccess ? (
-                  <div className="billing-inline-card billing-inline-card-soft">
-                    <div>
-                      <span className="billing-micro-label">Acces logiciel</span>
-                      <strong>Compte en attente</strong>
-                      <p>Les modules restent verrouilles jusqu'a l'activation de la formule.</p>
-                    </div>
                   </div>
                 ) : null}
 
-                <details className="billing-accordion">
-                  <summary>Voir les details</summary>
-                  <div className="billing-detail-grid">
-                    {subscriptionDetails.map((detail) => (
-                      <article key={detail.id} className="billing-detail-card">
-                        <span className="billing-micro-label">{detail.label}</span>
-                        <strong>{detail.value}</strong>
-                      </article>
-                    ))}
-                  </div>
-                </details>
-              </Panel>
-
-              <Panel
-                className="billing-section"
-                title="Activation"
-                description="Choisissez une formule puis envoyez votre demande."
-              >
                 <div className="billing-inline-grid">
                   <article className="billing-inline-card">
                     <div>
-                      <span className="billing-micro-label">Activation guidee</span>
+                      <span className="billing-micro-label">Activation guidée</span>
                       <strong>Choix, demande, rappel Lokify</strong>
-                      <p>Le paiement en ligne est provisoirement remplace par une mise en place assistee.</p>
+                      <p>Notre équipe vous accompagne pour finaliser l'activation de la formule choisie.</p>
                     </div>
                   </article>
 
@@ -365,9 +340,9 @@ export default function BillingPage() {
                       <div>
                         <span className="billing-micro-label">Demande en cours</span>
                         <strong>
-                          {planChangeRequest.requestedPlanName || "Formule a confirmer"}
+                          {planChangeRequest.requestedPlanName || "Formule à confirmer"}
                         </strong>
-                        <p>Envoyee le {formatDateTimeValue(planChangeRequest.requestedAt)}.</p>
+                        <p>Envoyée le {formatDateTimeValue(planChangeRequest.requestedAt)}.</p>
                       </div>
                       <span className="billing-inline-meta">{pendingRequestPriceLabel}</span>
                     </article>
@@ -375,8 +350,8 @@ export default function BillingPage() {
                     <article className="billing-inline-card billing-inline-card-soft">
                       <div>
                         <span className="billing-micro-label">Support</span>
-                        <strong>Accompagnement dedie</strong>
-                        <p>Une demande d'abonnement cree automatiquement un suivi support.</p>
+                        <strong>Accompagnement dédié</strong>
+                        <p>Une demande d'abonnement crée automatiquement un suivi support.</p>
                       </div>
                     </article>
                   )}
@@ -400,6 +375,7 @@ export default function BillingPage() {
                     const isCurrentPlanActive =
                       isCurrentPlan && ["active", "trial"].includes(currentSubscriptionStatus);
                     const isRequestedPlan = planChangeRequest?.requestedPlanId === plan.id;
+                    const isFeaturedPlan = !hasChosenPlan && plan.id === "pro";
                     const previewHighlights = (plan.highlights || []).slice(0, 2);
                     const extraHighlights = Math.max((plan.highlights || []).length - 2, 0);
                     const buttonLabel = getPlanActionLabel({
@@ -414,7 +390,9 @@ export default function BillingPage() {
                         key={plan.id}
                         className={`billing-plan-card ${
                           isCurrentPlan ? "is-current" : ""
-                        } ${isRequestedPlan ? "is-requested" : ""}`.trim()}
+                        } ${isRequestedPlan ? "is-requested" : ""} ${
+                          isFeaturedPlan ? "is-featured" : ""
+                        }`.trim()}
                       >
                         <div className="billing-plan-head">
                           <div>
@@ -425,6 +403,8 @@ export default function BillingPage() {
                             <StatusPill tone="success">Active</StatusPill>
                           ) : isRequestedPlan ? (
                             <StatusPill tone="info">En cours</StatusPill>
+                          ) : isFeaturedPlan ? (
+                            <StatusPill tone="warning">Recommandée</StatusPill>
                           ) : null}
                         </div>
 
@@ -475,6 +455,50 @@ export default function BillingPage() {
                 </div>
               </Panel>
 
+              {hasChosenPlan ? (
+                <Panel
+                  className="billing-section"
+                  title="Votre abonnement"
+                  description="L'essentiel sur votre formule actuelle et l'accès au logiciel."
+                >
+                  <div className="billing-status-grid">
+                    {subscriptionCards.map((card) => (
+                      <article key={card.id} className="billing-status-card">
+                        <span className="billing-micro-label">{card.label}</span>
+                        {card.type === "status" ? (
+                          <StatusPill tone={card.tone}>{card.value}</StatusPill>
+                        ) : (
+                          <strong>{card.value}</strong>
+                        )}
+                        <small>{card.helper}</small>
+                      </article>
+                    ))}
+                  </div>
+
+                  {!hasOperationalAccess ? (
+                    <div className="billing-inline-card billing-inline-card-soft">
+                      <div>
+                        <span className="billing-micro-label">Accès logiciel</span>
+                        <strong>Compte en attente</strong>
+                        <p>Les modules restent verrouillés jusqu'à l'activation de la formule.</p>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <details className="billing-accordion">
+                    <summary>Voir les détails</summary>
+                    <div className="billing-detail-grid">
+                      {subscriptionDetails.map((detail) => (
+                        <article key={detail.id} className="billing-detail-card">
+                          <span className="billing-micro-label">{detail.label}</span>
+                          <strong>{detail.value}</strong>
+                        </article>
+                      ))}
+                    </div>
+                  </details>
+                </Panel>
+              ) : null}
+
               <Panel
                 className="billing-section"
                 title="Historique"
@@ -512,7 +536,7 @@ export default function BillingPage() {
               ? `Demande de mise en place - ${selectedPlan.name}`
               : "Demande de mise en place"
           }
-          description="Laissez vos coordonnees pour etre recontacte rapidement."
+          description="Laissez vos coordonnées pour être recontacté rapidement."
           size="lg"
           onClose={closeContactModal}
           footer={
@@ -531,7 +555,7 @@ export default function BillingPage() {
                 form="lokify-subscription-contact-form"
                 disabled={submittingContact}
               >
-                {submittingContact ? "Envoi..." : "Etre recontacte"}
+                {submittingContact ? "Envoi..." : "Être recontacté"}
               </button>
             </>
           }
@@ -555,7 +579,7 @@ export default function BillingPage() {
 
               <div className="form-grid two-columns">
                 <div className="field">
-                  <label htmlFor="subscription-contact-first-name">Prenom</label>
+                  <label htmlFor="subscription-contact-first-name">Prénom</label>
                   <input
                     id="subscription-contact-first-name"
                     value={contactForm.firstName}
@@ -579,7 +603,7 @@ export default function BillingPage() {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="subscription-contact-company">Societe</label>
+                  <label htmlFor="subscription-contact-company">Société</label>
                   <input
                     id="subscription-contact-company"
                     value={contactForm.company}
@@ -591,7 +615,7 @@ export default function BillingPage() {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="subscription-contact-email">Email</label>
+                  <label htmlFor="subscription-contact-email">E-mail</label>
                   <input
                     id="subscription-contact-email"
                     type="email"
@@ -602,7 +626,7 @@ export default function BillingPage() {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="subscription-contact-phone">Telephone</label>
+                  <label htmlFor="subscription-contact-phone">Téléphone</label>
                   <input
                     id="subscription-contact-phone"
                     value={contactForm.phone}
@@ -623,12 +647,12 @@ export default function BillingPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="subscription-contact-message">Message complementaire</label>
+                <label htmlFor="subscription-contact-message">Message complémentaire</label>
                 <textarea
                   id="subscription-contact-message"
                   value={contactForm.message}
                   onChange={(event) => handleContactFieldChange("message", event.target.value)}
-                  placeholder="Precisez vos besoins ou vos questions."
+                  placeholder="Précisez vos besoins ou vos questions."
                 />
               </div>
             </form>
@@ -650,20 +674,32 @@ export default function BillingPage() {
             gap: 1.8rem;
           }
 
+          .billing-page .page-header > :first-child {
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+
           .billing-page .page-header h3 {
-            max-width: 12ch;
+            max-width: none;
             font-size: clamp(1.75rem, 2vw, 2.3rem);
             letter-spacing: -0.03em;
           }
 
           .billing-page .page-header p {
-            max-width: 56ch;
+            max-width: none;
             margin-top: 0.35rem;
           }
 
           .billing-page .page-header-actions {
             align-items: center;
             gap: 0.7rem;
+          }
+
+          @media (min-width: 1200px) {
+            .billing-page .page-header h3,
+            .billing-page .page-header p {
+              white-space: nowrap;
+            }
           }
 
           .billing-page .billing-section {
@@ -913,6 +949,16 @@ export default function BillingPage() {
           .billing-page .billing-plan-card.is-current {
             border-color: rgba(107, 46, 130, 0.16);
             box-shadow: 0 16px 34px rgba(107, 46, 130, 0.08);
+          }
+
+          .billing-page .billing-plan-card.is-featured {
+            border-color: rgba(16, 117, 92, 0.22);
+            box-shadow: 0 18px 36px rgba(16, 117, 92, 0.12);
+          }
+
+          .billing-page .billing-offer-intro {
+            display: grid;
+            gap: 0.85rem;
           }
 
           .billing-page .billing-plan-head {

@@ -8,6 +8,7 @@ import StatusPill from "../../components/status-pill";
 import { useAuth } from "../../components/auth-provider";
 import { apiRequest } from "../../lib/api";
 import { isSuperAdmin } from "../../lib/access";
+import { defaultReservationStatuses } from "../../lib/lokify-data";
 
 const initialPlatformForm = {
   publishableKey: "",
@@ -36,6 +37,9 @@ const initialLocalPreferences = {
   accounting_export: false,
 };
 
+const formatStripeModeLabel = (value) =>
+  String(value || "test").trim().toLowerCase() === "live" ? "Production" : "Configuration";
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -46,6 +50,8 @@ export default function SettingsPage() {
   const [platformForm, setPlatformForm] = useState(initialPlatformForm);
   const [providerForm, setProviderForm] = useState(initialProviderForm);
   const [localPreferences, setLocalPreferences] = useState(initialLocalPreferences);
+  const [reservationStatuses, setReservationStatuses] = useState(defaultReservationStatuses);
+  const [savingStatuses, setSavingStatuses] = useState(false);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -56,8 +62,12 @@ export default function SettingsPage() {
         const response = await apiRequest("/admin/stripe/settings");
         setPlatformSettings(response.stripeSettings);
       } else {
-        const response = await apiRequest("/customer-payments/settings");
+        const [response, statusesResponse] = await Promise.all([
+          apiRequest("/customer-payments/settings"),
+          apiRequest("/reservations/statuses"),
+        ]);
         setProviderSettings(response.customerPayments);
+        setReservationStatuses(statusesResponse.statuses || defaultReservationStatuses);
         setProviderForm((current) => ({
           ...current,
           customerPaymentsEnabled: Boolean(response.customerPayments?.customerPaymentsEnabled),
@@ -92,6 +102,12 @@ export default function SettingsPage() {
         [planId]: value,
       },
     }));
+  };
+
+  const updateReservationStatusForm = (code, field, value) => {
+    setReservationStatuses((current) =>
+      current.map((status) => (status.code === code ? { ...status, [field]: value } : status))
+    );
   };
 
   const handleSave = async (event) => {
@@ -132,6 +148,35 @@ export default function SettingsPage() {
     }
   };
 
+  const handleStatusSave = async (event) => {
+    event.preventDefault();
+    setSavingStatuses(true);
+    setFeedback(null);
+
+    try {
+      const response = await apiRequest("/reservations/statuses", {
+        method: "PUT",
+        body: {
+          statuses: reservationStatuses.map((status, index) => ({
+            code: status.code,
+            label: status.label,
+            color: status.color,
+            position: index,
+          })),
+        },
+      });
+      setReservationStatuses(response.statuses || reservationStatuses);
+      setFeedback({
+        type: "success",
+        message: "Les statuts personnalises ont ete enregistres avec succes.",
+      });
+    } catch (error) {
+      setFeedback({ type: "error", message: error.message });
+    } finally {
+      setSavingStatuses(false);
+    }
+  };
+
   const isPlatformMode = isSuperAdmin(user);
 
   return (
@@ -139,16 +184,16 @@ export default function SettingsPage() {
       <div className="page-stack">
         <div className="page-header">
           <div>
-            <p className="eyebrow">Parametres</p>
+            <p className="eyebrow">Paramètres</p>
             <h3>
               {isPlatformMode
-                ? "Configuration globale de paiement pour facturer les prestataires."
-                : "Configuration Stripe isolee pour encaisser les clients du prestataire."}
+                ? "Configuration des paiements de la plateforme."
+                : "Configuration de vos encaissements clients."}
             </h3>
             <p>
               {isPlatformMode
-                ? "Les secrets Stripe super admin restent cote serveur et ne sont jamais visibles des prestataires."
-                : "Vos cles Stripe sont masquees, stockees cote serveur et strictement reservees a votre espace."}
+                ? "Les informations de paiement restent sécurisées et uniquement visibles dans cet espace."
+                : "Vos informations de paiement sont masquées, stockées côté serveur et réservées à votre espace."}
             </p>
           </div>
         </div>
@@ -160,9 +205,9 @@ export default function SettingsPage() {
         ) : null}
 
         {loading ? (
-          <Panel title="Chargement des reglages" description="Preparation de la configuration de paiement.">
+          <Panel title="Chargement des réglages" description="Préparation de la configuration de paiement.">
             <div className="empty-state">
-              <strong>Lecture des reglages</strong>
+              <strong>Lecture des réglages</strong>
               <span>Les informations apparaissent dans quelques instants.</span>
             </div>
           </Panel>
@@ -170,39 +215,39 @@ export default function SettingsPage() {
 
         {!loading && isPlatformMode ? (
           <Panel
-            title="Stripe super admin"
-            description="Utilise pour facturer les abonnements SaaS des prestataires."
+            title="Paiements plateforme"
+            description="Utilisé pour gérer les abonnements des prestataires."
           >
             <div className="detail-grid">
               <article className="detail-card">
                 <strong>Cle publique</strong>
                 <span className="muted-text">
-                  {platformSettings?.stripePublishableKeyPreview || "Non configuree"}
+                  {platformSettings?.stripePublishableKeyPreview || "Non configurée"}
                 </span>
               </article>
               <article className="detail-card">
                 <strong>Cle secrete</strong>
                 <span className="muted-text">
-                  {platformSettings?.stripeSecretKeyPreview || "Non configuree"}
+                  {platformSettings?.stripeSecretKeyPreview || "Non configurée"}
                 </span>
               </article>
               <article className="detail-card">
                 <strong>Webhook secret</strong>
                 <span className="muted-text">
-                  {platformSettings?.stripeWebhookSecretPreview || "Non configure"}
+                  {platformSettings?.stripeWebhookSecretPreview || "Non configuré"}
                 </span>
               </article>
               <article className="detail-card">
-                <strong>Derniere mise a jour</strong>
+                <strong>Dernière mise à jour</strong>
                 <span className="muted-text">
-                  {platformSettings?.updatedBy || "Pas encore de mise a jour"}
+                  {platformSettings?.updatedBy || "Pas encore de mise à jour"}
                 </span>
               </article>
             </div>
 
             <form className="form-grid" onSubmit={handleSave}>
               <div className="field">
-                <label htmlFor="platform-publishable">Cle publique Stripe</label>
+                <label htmlFor="platform-publishable">Clé publique Stripe</label>
                 <input
                   id="platform-publishable"
                   value={platformForm.publishableKey}
@@ -212,12 +257,12 @@ export default function SettingsPage() {
                       publishableKey: event.target.value,
                     }))
                   }
-                  placeholder="pk_test_..."
+                  placeholder="pk_..."
                 />
               </div>
 
               <div className="field">
-                <label htmlFor="platform-secret">Cle secrete Stripe</label>
+                <label htmlFor="platform-secret">Clé privée Stripe</label>
                 <input
                   id="platform-secret"
                   type="password"
@@ -228,12 +273,12 @@ export default function SettingsPage() {
                       secretKey: event.target.value,
                     }))
                   }
-                  placeholder="sk_test_..."
+                  placeholder="sk_..."
                 />
               </div>
 
               <div className="field">
-                <label htmlFor="platform-webhook">Webhook signing secret</label>
+                <label htmlFor="platform-webhook">Secret de notification</label>
                 <input
                   id="platform-webhook"
                   type="password"
@@ -250,7 +295,7 @@ export default function SettingsPage() {
 
               {["essential", "pro", "premium"].map((planId) => (
                 <div key={planId} className="field">
-                  <label htmlFor={`price-${planId}`}>Price ID {planId}</label>
+                  <label htmlFor={`price-${planId}`}>Référence tarifaire {planId}</label>
                   <input
                     id={`price-${planId}`}
                     value={platformForm.priceIds[planId]}
@@ -258,13 +303,13 @@ export default function SettingsPage() {
                     placeholder="price_..."
                   />
                   <small className="muted-text">
-                    Actuel: {platformSettings?.subscriptionPriceIds?.[planId]?.preview || "non configure"}
+                    Enregistré: {platformSettings?.subscriptionPriceIds?.[planId]?.preview || "non configuré"}
                   </small>
                 </div>
               ))}
 
               <button type="submit" className="button primary" disabled={saving}>
-                {saving ? "Enregistrement..." : "Enregistrer Stripe super admin"}
+                {saving ? "Enregistrement..." : "Enregistrer la configuration de paiement"}
               </button>
             </form>
           </Panel>
@@ -273,30 +318,80 @@ export default function SettingsPage() {
         {!loading && !isPlatformMode ? (
           <>
             <Panel
-              title="Stripe prestataire"
-              description="Vos encaissements clients sont totalement separes du Stripe super admin."
+              title="Statuts réservations"
+              description="Les 5 statuts restent simples, lisibles et personnalisables par prestataire."
+            >
+              <form className="form-grid" onSubmit={handleStatusSave}>
+                <div className="card-list">
+                  {reservationStatuses.map((status) => (
+                    <article key={status.code} className="detail-card">
+                      <div className="row-actions">
+                        <strong>{status.code}</strong>
+                        <StatusPill tone="neutral" color={status.color}>
+                          {status.label}
+                        </StatusPill>
+                      </div>
+
+                      <div className="form-grid two-columns">
+                        <div className="field">
+                          <label htmlFor={`status-label-${status.code}`}>Nom</label>
+                          <input
+                            id={`status-label-${status.code}`}
+                            value={status.label}
+                            onChange={(event) =>
+                              updateReservationStatusForm(status.code, "label", event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`status-color-${status.code}`}>Couleur</label>
+                          <input
+                            id={`status-color-${status.code}`}
+                            type="color"
+                            value={status.color}
+                            onChange={(event) =>
+                              updateReservationStatusForm(status.code, "color", event.target.value)
+                            }
+                          />
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <button type="submit" className="button primary" disabled={savingStatuses}>
+                  {savingStatuses ? "Enregistrement..." : "Enregistrer les statuts"}
+                </button>
+              </form>
+            </Panel>
+
+            <Panel
+              title="Paiements clients"
+              description="Connectez votre compte de paiement pour encaisser vos clients."
             >
               <div className="detail-grid">
                 <article className="detail-card">
                   <strong>Encaissements clients</strong>
                   <StatusPill tone={providerSettings?.customerPaymentsEnabled ? "success" : "neutral"}>
-                    {providerSettings?.customerPaymentsEnabled ? "Actifs" : "Desactives"}
+                    {providerSettings?.customerPaymentsEnabled ? "Actifs" : "Désactivés"}
                   </StatusPill>
                 </article>
                 <article className="detail-card">
-                  <strong>Mode</strong>
-                  <span className="muted-text">{providerSettings?.customerStripeMode || "test"}</span>
+                  <strong>Environnement</strong>
+                  <span className="muted-text">
+                    {formatStripeModeLabel(providerSettings?.customerStripeMode)}
+                  </span>
                 </article>
                 <article className="detail-card">
                   <strong>Cle publique</strong>
                   <span className="muted-text">
-                    {providerSettings?.customerStripePublishableKeyPreview || "Non configuree"}
+                  {providerSettings?.customerStripePublishableKeyPreview || "Non configurée"}
                   </span>
                 </article>
                 <article className="detail-card">
                   <strong>Cle secrete</strong>
                   <span className="muted-text">
-                    {providerSettings?.customerStripeSecretKeyPreview || "Non configuree"}
+                  {providerSettings?.customerStripeSecretKeyPreview || "Non configurée"}
                   </span>
                 </article>
               </div>
@@ -316,13 +411,13 @@ export default function SettingsPage() {
                       }
                     />
                     <span className="muted-text">
-                      Active uniquement le Stripe du prestataire courant.
+                      Active uniquement les paiements du prestataire courant.
                     </span>
                   </div>
                 </label>
 
                 <div className="field">
-                  <label htmlFor="provider-mode">Mode Stripe</label>
+                  <label htmlFor="provider-mode">Environnement de paiement</label>
                   <select
                     id="provider-mode"
                     value={providerForm.stripeMode}
@@ -333,13 +428,13 @@ export default function SettingsPage() {
                       }))
                     }
                   >
-                    <option value="test">Test</option>
-                    <option value="live">Live</option>
+                    <option value="test">Configuration</option>
+                    <option value="live">Production</option>
                   </select>
                 </div>
 
                 <div className="field">
-                  <label htmlFor="provider-account">Stripe account ID</label>
+                  <label htmlFor="provider-account">Identifiant du compte Stripe</label>
                   <input
                     id="provider-account"
                     value={providerForm.accountId}
@@ -364,12 +459,12 @@ export default function SettingsPage() {
                         publishableKey: event.target.value,
                       }))
                     }
-                    placeholder="pk_test_..."
+                    placeholder="pk_..."
                   />
                 </div>
 
                 <div className="field">
-                  <label htmlFor="provider-secret">Cle secrete Stripe</label>
+                  <label htmlFor="provider-secret">Cle privee Stripe</label>
                   <input
                     id="provider-secret"
                     type="password"
@@ -380,12 +475,12 @@ export default function SettingsPage() {
                         secretKey: event.target.value,
                       }))
                     }
-                    placeholder="sk_test_..."
+                    placeholder="sk_..."
                   />
                 </div>
 
                 <div className="field">
-                  <label htmlFor="provider-webhook">Webhook signing secret</label>
+                  <label htmlFor="provider-webhook">Secret de notification</label>
                   <input
                     id="provider-webhook"
                     type="password"
@@ -401,20 +496,20 @@ export default function SettingsPage() {
                 </div>
 
                 <button type="submit" className="button primary" disabled={saving}>
-                  {saving ? "Enregistrement..." : "Enregistrer Stripe prestataire"}
+                  {saving ? "Enregistrement..." : "Enregistrer la configuration de paiement"}
                 </button>
               </form>
             </Panel>
 
             <Panel
-              title="Preferences principales"
+              title="Préférences principales"
               description="Des activations simples pour la vitrine, les notifications et les exports."
             >
               <div className="card-list">
                 {[
                   ["store_active", "Boutique en ligne", "Activer la vitrine client depuis votre espace."],
-                  ["delivery_mode", "Mode livraisons", "Afficher les tournees et options logistiques."],
-                  ["customer_notifications", "Notifications clients", "Preparer les messages de suivi et de rappel."],
+                  ["delivery_mode", "Mode livraisons", "Afficher les tournées et options logistiques."],
+                  ["customer_notifications", "Notifications clients", "Préparer les messages de suivi et de rappel."],
                   ["accounting_export", "Export comptable", "Structurer un export compatible avec vos outils comptables."],
                 ].map(([key, label, helper]) => (
                   <label key={key} className="detail-card">

@@ -9,7 +9,7 @@ const providerMainNavigation = [
   },
   {
     href: "/reservations",
-    label: "Reservations",
+    label: "Réservations",
     shortLabel: "RS",
     icon: "calendar",
   },
@@ -27,7 +27,7 @@ const providerMainNavigation = [
   },
   {
     href: "/toolbox",
-    label: "Boite a outils",
+    label: "Boîte à outils",
     shortLabel: "BX",
     icon: "toolbox",
   },
@@ -60,26 +60,26 @@ const superAdminMainNavigation = [
   },
   {
     href: "/parametres",
-    label: "Parametres",
+    label: "Paramètres",
     shortLabel: "PM",
     icon: "settings",
   },
 ];
 
 const providerQuickActionConfig = {
-  triggerLabel: "Reservation",
+  triggerLabel: "Réservation",
   items: [
     {
       id: "reservation",
-      label: "Nouvelle reservation",
+      label: "Nouvelle réservation",
       href: "/reservations?mode=create",
-      helper: "Creer une location et planifier la sortie.",
+      helper: "Créer une location et planifier la sortie.",
     },
     {
       id: "quote",
       label: "Nouveau devis",
       href: "/reservations?module=documents&mode=quote",
-      helper: "Preparer une base commerciale avant validation.",
+      helper: "Préparer une base commerciale avant validation.",
     },
     {
       id: "requests",
@@ -98,7 +98,7 @@ const superAdminQuickActionConfig = {
       id: "provider",
       label: "Nouveau prestataire",
       href: "/prestataires?mode=create",
-      helper: "Creer un compte invite puis envoyer son lien d'activation.",
+      helper: "Créer un compte invité puis envoyer son lien d'activation.",
     },
   ],
 };
@@ -124,7 +124,7 @@ const providerAccountMenuItems = [
   },
   {
     id: "settings",
-    label: "Parametres",
+    label: "Paramètres",
     href: "/parametres",
     icon: "settings",
   },
@@ -151,7 +151,7 @@ const superAdminAccountMenuItems = [
   },
   {
     id: "settings",
-    label: "Parametres",
+    label: "Paramètres",
     href: "/parametres",
     icon: "settings",
   },

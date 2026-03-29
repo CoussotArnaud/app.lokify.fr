@@ -184,8 +184,8 @@ const renderCalendarBoard = ({
               </>
             ) : (
               <div className="empty-state planning-empty-state">
-                <strong>Aucune reservation</strong>
-                <span>Cette plage reste disponible pour une nouvelle operation.</span>
+                <strong>Aucune réservation</strong>
+                <span>Cette plage reste disponible pour une nouvelle opération.</span>
               </div>
             )}
           </article>
@@ -433,7 +433,7 @@ function ProviderDashboardPage() {
     setDeliveryFeedback("");
 
     if (!tourForm.name || !tourForm.area || !tourForm.date) {
-      setDeliveryError("Nom, zone et date sont obligatoires pour creer une tournee.");
+      setDeliveryError("Nom, zone et date sont obligatoires pour créer une tournée.");
       return;
     }
 
@@ -459,7 +459,7 @@ function ProviderDashboardPage() {
       setDeliveryDate(tourForm.date);
       setSelectedDeliveryId(response?.tour?.id || "");
       resetTourComposer();
-      setDeliveryFeedback(deliveryEditorId ? "Tournee mise a jour." : "Tournee enregistree.");
+      setDeliveryFeedback(deliveryEditorId ? "Tournée mise à jour." : "Tournée enregistrée.");
     } catch (creationError) {
       setDeliveryError(creationError.message);
     }
@@ -467,7 +467,7 @@ function ProviderDashboardPage() {
 
   const removeTour = async (tourId) => {
     if (typeof window !== "undefined") {
-      const confirmed = window.confirm("Supprimer cette tournee ?");
+    const confirmed = window.confirm("Supprimer cette tournée ?");
       if (!confirmed) {
         return;
       }
@@ -484,7 +484,7 @@ function ProviderDashboardPage() {
       if (deliveryEditorId === tourId) {
         resetTourComposer();
       }
-      setDeliveryFeedback("Tournee supprimee.");
+      setDeliveryFeedback("Tournée supprimée.");
     } catch (deleteError) {
       setDeliveryError(deleteError.message);
     }
@@ -501,7 +501,7 @@ function ProviderDashboardPage() {
     try {
       await workspace.moveDeliveryStop(selectedDelivery.id, stopId, direction);
       setSelectedDeliveryId(selectedDelivery.id);
-      setDeliveryFeedback("Ordre de tournee mis a jour.");
+      setDeliveryFeedback("Ordre de tournée mis à jour.");
     } catch (moveError) {
       setDeliveryError(moveError.message);
     }
@@ -567,8 +567,8 @@ function ProviderDashboardPage() {
             <div className="hero-banner-header">
               <div className="page-heading">
                 <p className="eyebrow">Dashboard</p>
-                <h1>Pilotez vos reservations, vos livraisons et vos mouvements de stock.</h1>
-                <p>Retrouvez les priorites du jour, le planning et les indicateurs utiles au meme endroit.</p>
+                <h1>Pilotez vos réservations, vos livraisons et vos mouvements de stock.</h1>
+                <p>Retrouvez les priorités du jour, le planning et les indicateurs utiles au même endroit.</p>
               </div>
               <button type="button" className="button subtle hero-banner-toggle" onClick={() => setHeroHidden(true)}>
                 Masquer
@@ -579,7 +579,7 @@ function ProviderDashboardPage() {
                 <span className="hero-banner-kpi-label">Parc mobilise</span>
                 <strong className="hero-banner-kpi-value">{workspace.metrics.parkUsageRate}%</strong>
                 <p className="hero-banner-meta">
-                  {workspace.metrics.rentedUnits} unite(s) engagee(s) sur {workspace.metrics.totalStock} en stock
+                  {workspace.metrics.rentedUnits} unité(s) engagée(s) sur {workspace.metrics.totalStock} en stock
                 </p>
               </div>
               <div className="hero-banner-stats">
@@ -589,7 +589,7 @@ function ProviderDashboardPage() {
                 </div>
                 <div className="hero-banner-stat">
                   <strong>{formatCurrency(workspace.metrics.totalRevenue)}</strong>
-                  <span className="muted-text">CA confirme</span>
+                  <span className="muted-text">CA confirmé</span>
                 </div>
               </div>
             </div>
@@ -601,9 +601,9 @@ function ProviderDashboardPage() {
         <SegmentedTabs options={dashboardTabs} value={activeTab} onChange={setActiveTab} ariaLabel="Vues du dashboard" />
 
         {workspace.loading ? (
-          <Panel title="Chargement du dashboard" description="LOKIFY consolide les donnees reservations, clients et catalogue.">
+          <Panel title="Chargement du dashboard" description="LOKIFY consolide les données réservations, clients et catalogue.">
             <div className="empty-state">
-              <strong>Preparation des vues</strong>
+              <strong>Préparation des vues</strong>
               <span>Les indicateurs apparaissent dans quelques instants.</span>
             </div>
           </Panel>
@@ -612,16 +612,16 @@ function ProviderDashboardPage() {
         {!workspace.loading && activeTab === "reservations" ? (
           <>
             <section className="metric-grid">
-              <MetricCard icon="document" label="Nouvelles demandes" value={workspace.overview.stats.draft_reservations} helper="A qualifier ou convertir" tone="warning" onClick={() => handleDashboardShortcut("drafts")} />
-              <MetricCard icon="truck" label="Departs a traiter" value={upcomingDepartures.length} helper="Reservations confirmees a preparer" tone="success" onClick={() => handleDashboardShortcut("departures")} />
-              <MetricCard icon="clock" label="Retours" value={upcomingReturns.length} helper="A cloturer dans les 72h" tone="info" onClick={() => handleDashboardShortcut("returns")} />
+              <MetricCard icon="document" label="Nouvelles demandes" value={workspace.overview.stats.draft_reservations} helper="À qualifier ou convertir" tone="warning" onClick={() => handleDashboardShortcut("drafts")} />
+              <MetricCard icon="truck" label="Départs à traiter" value={upcomingDepartures.length} helper="Réservations confirmées à préparer" tone="success" onClick={() => handleDashboardShortcut("departures")} />
+              <MetricCard icon="clock" label="Retours" value={upcomingReturns.length} helper="À clôturer dans les 72h" tone="info" onClick={() => handleDashboardShortcut("returns")} />
             </section>
 
             <div ref={planningPanelRef} tabIndex={-1} className="dashboard-scroll-anchor">
               <Panel
                 className="planning-panel"
-                title="Planning reservations"
-                description="Vue calendrier, liste ou ma journee avec une lecture plus claire, plus aeree et mieux equilibree."
+                title="Planning réservations"
+                description="Vue calendrier, liste ou ma journée avec une lecture plus claire, plus aérée et mieux équilibrée."
               >
               <div className="planning-shell">
                 <div className="planning-toolbar">
@@ -629,15 +629,15 @@ function ProviderDashboardPage() {
                     <div className="toolbar-group">
                       <button type="button" className="button ghost" onClick={() => setReferenceDate((current) => shiftReferenceDate(current, horizonMode, -1))}>
                         <Icon name="arrowLeft" size={14} />
-                        Periode precedente
+                        Période précédente
                       </button>
                       <button type="button" className="button ghost" onClick={() => setReferenceDate((current) => shiftReferenceDate(current, horizonMode, 1))}>
-                        Periode suivante
+                        Période suivante
                         <Icon name="arrowRight" size={14} />
                       </button>
                     </div>
                     <div className="planning-period-card">
-                      <span className="planning-toolbar-label">Periode active</span>
+                      <span className="planning-toolbar-label">Période active</span>
                       <strong>{buildPeriodLabel(horizonMode, referenceDate)}</strong>
                     </div>
                   </div>
@@ -672,7 +672,7 @@ function ProviderDashboardPage() {
                         </option>
                       ))}
                     </select>
-                    <SearchInput className="planning-search" value={search} onChange={setSearch} placeholder="Recherche client, produit ou categorie" />
+                    <SearchInput className="planning-search" value={search} onChange={setSearch} placeholder="Recherche client, produit ou catégorie" />
                   </div>
                 </div>
 
@@ -690,7 +690,7 @@ function ProviderDashboardPage() {
                       <DataTable
                         className="planning-data-table"
                         rows={filteredReservations}
-                        emptyMessage="Aucune reservation sur cette plage."
+                        emptyMessage="Aucune réservation sur cette plage."
                         columns={[
                           {
                             key: "status",
@@ -705,7 +705,7 @@ function ProviderDashboardPage() {
                             ),
                           },
                           { key: "client", label: "Client", render: (row) => <div className="table-title"><strong>{row.client_name}</strong><small>{row.item_name}</small></div> },
-                          { key: "period", label: "Periode", render: (row) => <div className="table-title"><strong>{formatDateTime(row.start_date)}</strong><small>Retour {formatDateTime(row.end_date)}</small></div> },
+                          { key: "period", label: "Période", render: (row) => <div className="table-title"><strong>{formatDateTime(row.start_date)}</strong><small>Retour {formatDateTime(row.end_date)}</small></div> },
                           { key: "amount", label: "Montant", render: (row) => formatCurrency(row.total_amount) },
                           {
                             key: "action",
@@ -741,7 +741,7 @@ function ProviderDashboardPage() {
                               {reservationStatusMeta[reservation.status]?.label || reservation.status}
                             </StatusPill>
                           </button>
-                        )) : <div className="empty-state planning-empty-state"><strong>Journee libre</strong><span>Aucune intervention prevue a cette date.</span></div>}
+                        )) : <div className="empty-state planning-empty-state"><strong>Journée libre</strong><span>Aucune intervention prévue à cette date.</span></div>}
                       </div>
                     ) : null}
                 </div>
@@ -749,7 +749,7 @@ function ProviderDashboardPage() {
                 <div className="planning-secondary-grid">
                     <div ref={departuresPanelRef} tabIndex={-1} className="section-block planning-secondary-card">
                       <div className="section-block-header">
-                        <div><h4>Priorites du jour</h4><p>Une lecture rapide des sorties a preparer.</p></div>
+                        <div><h4>Priorités du jour</h4><p>Une lecture rapide des sorties à préparer.</p></div>
                         <StatusPill tone="info">{upcomingDepartures.length}</StatusPill>
                       </div>
                       <div className="planning-secondary-list">
@@ -765,12 +765,12 @@ function ProviderDashboardPage() {
                         </button>
                         ))}
                       </div>
-                      {!upcomingDepartures.length ? <div className="empty-state planning-empty-state"><strong>Depart calme</strong><span>Aucune sortie urgente sur les prochaines 72 heures.</span></div> : null}
+                      {!upcomingDepartures.length ? <div className="empty-state planning-empty-state"><strong>Départ calme</strong><span>Aucune sortie urgente sur les prochaines 72 heures.</span></div> : null}
                     </div>
 
                     <div ref={returnsPanelRef} tabIndex={-1} className="section-block planning-secondary-card">
                       <div className="section-block-header">
-                        <div><h4>Retours a preparer</h4><p>Pour organiser les controles et restitutions.</p></div>
+                        <div><h4>Retours à préparer</h4><p>Pour organiser les contrôles et restitutions.</p></div>
                         <StatusPill tone="info">{upcomingReturns.length}</StatusPill>
                       </div>
                       <div className="planning-secondary-list">
@@ -786,7 +786,7 @@ function ProviderDashboardPage() {
                         </button>
                         ))}
                       </div>
-                      {!upcomingReturns.length ? <div className="empty-state planning-empty-state"><strong>Aucun retour a gerer</strong><span>Le planning reste fluide sur cette plage.</span></div> : null}
+                      {!upcomingReturns.length ? <div className="empty-state planning-empty-state"><strong>Aucun retour à gérer</strong><span>Le planning reste fluide sur cette plage.</span></div> : null}
                     </div>
                   </div>
               </div>
@@ -798,8 +798,8 @@ function ProviderDashboardPage() {
         {!workspace.loading && activeTab === "deliveries" ? (
           <section className="split-layout split-2-1">
             <Panel
-              title="Plan des tournees"
-              description="Une base claire pour coordonner la date, les zones et les arrets."
+              title="Plan des tournées"
+              description="Une base claire pour coordonner la date, les zones et les arrêts."
               actions={<input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} />}
             >
               {deliveryError ? <p className="feedback error">{deliveryError}</p> : null}
@@ -854,14 +854,14 @@ function ProviderDashboardPage() {
                       </div>
                       <small>{formatDate(tour.date, { weekday: "long", day: "numeric", month: "long" })} · {tour.area}</small>
                         <small>{tour.driver}</small>
-                        <small>{tour.reservations.length} affectation(s) · {tour.stops.length} arret(s)</small>
+                        <small>{tour.reservations.length} affectation(s) · {tour.stops.length} arrêt(s)</small>
                       </article>
                     );
                   })}
                   {!visibleDeliveryRows.length ? (
                     <div className="empty-state">
-                      <strong>Aucune tournee sur cette date</strong>
-                      <span>Utilisez le panneau de droite pour creer une premiere tournee.</span>
+                      <strong>Aucune tournée sur cette date</strong>
+                      <span>Utilisez le panneau de droite pour créer une première tournée.</span>
                     </div>
                   ) : null}
                 </div>
@@ -880,8 +880,8 @@ function ProviderDashboardPage() {
                           <div className="row-actions">
                             <div className="stack">
                               <strong>{stop.label}</strong>
-                              <small>{stop.scheduled_slot || "Horaire a confirmer"}</small>
-                              <small>{stop.address || "Adresse a confirmer"}</small>
+                              <small>{stop.scheduled_slot || "Horaire à confirmer"}</small>
+                              <small>{stop.address || "Adresse à confirmer"}</small>
                             </div>
                             <div className="row-actions">
                               {assignmentMeta ? (
@@ -907,7 +907,7 @@ function ProviderDashboardPage() {
                           </div>
                           {stop.reservation_reference ? (
                             <small className="muted-text">
-                              {stop.reservation_reference} · {stop.client_name || "Client a confirmer"}
+                              {stop.reservation_reference} · {stop.client_name || "Client à confirmer"}
                             </small>
                           ) : null}
                         </div>
@@ -915,8 +915,8 @@ function ProviderDashboardPage() {
                     })
                   ) : (
                     <div className="empty-state">
-                      <strong>Aucun arret pour cette tournee</strong>
-                      <span>Ajoutez des affectations a la creation pour structurer la route.</span>
+                      <strong>Aucun arrêt pour cette tournée</strong>
+                      <span>Ajoutez des affectations à la création pour structurer la route.</span>
                     </div>
                   )}
                 </div>
@@ -924,17 +924,17 @@ function ProviderDashboardPage() {
             </Panel>
 
             <Panel
-              title={isEditingDelivery ? "Modifier la tournee" : "Ajouter une tournee"}
+              title={isEditingDelivery ? "Modifier la tournée" : "Ajouter une tournée"}
               description={
                 isEditingDelivery
-                  ? "Ajoutez ou retirez des affectations sans recreer la tournee."
-                  : "Renseignez la date, la zone et les affectations de la tournee."
+                  ? "Ajoutez ou retirez des affectations sans recréer la tournée."
+                  : "Renseignez la date, la zone et les affectations de la tournée."
               }
             >
               <form className="form-grid" onSubmit={saveTour}>
                 <div className="field">
-                  <label htmlFor="tour-name">Nom de la tournee</label>
-                  <input id="tour-name" value={tourForm.name} onChange={(event) => setTourForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ex. Tournee premium nord" />
+                  <label htmlFor="tour-name">Nom de la tournée</label>
+                  <input id="tour-name" value={tourForm.name} onChange={(event) => setTourForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ex. Tournée premium nord" />
                 </div>
                 <div className="field">
                   <label htmlFor="tour-driver">Equipe</label>
@@ -942,7 +942,7 @@ function ProviderDashboardPage() {
                 </div>
                 <div className="field">
                   <label htmlFor="tour-area">Zone</label>
-                  <input id="tour-area" value={tourForm.area} onChange={(event) => setTourForm((current) => ({ ...current, area: event.target.value }))} placeholder="Ex. Ile-de-France sud" />
+                  <input id="tour-area" value={tourForm.area} onChange={(event) => setTourForm((current) => ({ ...current, area: event.target.value }))} placeholder="Ex. Île-de-France sud" />
                 </div>
                 <div className="field">
                   <label htmlFor="tour-date">Date</label>
@@ -950,14 +950,14 @@ function ProviderDashboardPage() {
                 </div>
                 {isEditingDelivery ? (
                   <p className="muted-text">
-                    Les affectations cochees resteront dans la tournee. Decochez pour les retirer.
+                    Les affectations cochées resteront dans la tournée. Décochez pour les retirer.
                   </p>
                 ) : null}
                 <div className="section-block">
                   <div className="section-block-header">
                     <div>
                       <h4>Affectations du jour</h4>
-                      <p>Selectionnez les departs et retours a integrer dans la tournee.</p>
+                      <p>Sélectionnez les départs et retours à intégrer dans la tournée.</p>
                     </div>
                     <StatusPill tone="info">{deliveryCandidates.length}</StatusPill>
                   </div>
@@ -989,7 +989,7 @@ function ProviderDashboardPage() {
                     {!deliveryCandidates.length ? (
                       <div className="empty-state">
                         <strong>Aucune affectation disponible</strong>
-                        <span>Choisissez une date avec des departs ou retours a traiter.</span>
+                        <span>Choisissez une date avec des départs ou retours à traiter.</span>
                       </div>
                     ) : null}
                   </div>
@@ -999,8 +999,8 @@ function ProviderDashboardPage() {
                     {workspace.mutating
                       ? "Enregistrement..."
                       : isEditingDelivery
-                        ? "Mettre a jour la tournee"
-                        : "Ajouter une tournee"}
+                        ? "Mettre à jour la tournée"
+                        : "Ajouter une tournée"}
                   </button>
                   {isEditingDelivery ? (
                     <button
@@ -1009,7 +1009,7 @@ function ProviderDashboardPage() {
                       onClick={resetTourComposer}
                       disabled={workspace.mutating}
                     >
-                      Annuler l'edition
+                      Annuler l'édition
                     </button>
                   ) : null}
                 </div>
@@ -1021,12 +1021,12 @@ function ProviderDashboardPage() {
         {!workspace.loading && activeTab === "stock" ? (
           <Panel
             title="Lecture du stock"
-            description="Categorie par categorie, avec une vue grille ou tableau plus aeree."
+            description="Catégorie par catégorie, avec une vue grille ou tableau plus aérée."
             actions={<SegmentedTabs options={stockDisplayModes} value={stockDisplay} onChange={setStockDisplay} size="sm" ariaLabel="Affichage du stock" />}
           >
             <div className="stack">
               <div className="toolbar-spread">
-                <SearchInput value={stockSearch} onChange={setStockSearch} placeholder="Rechercher un produit ou une categorie" />
+                <SearchInput value={stockSearch} onChange={setStockSearch} placeholder="Rechercher un produit ou une catégorie" />
                 <StatusPill tone="info">{filteredProducts.length} produit(s)</StatusPill>
               </div>
 
@@ -1035,7 +1035,7 @@ function ProviderDashboardPage() {
                   <article key={row.id} className="stock-row">
                     <div>
                       <strong>{row.label}</strong>
-                      <small>{row.products} produit(s) · {row.available} dispo · {row.reserved} loue(s)</small>
+                    <small>{row.products} produit(s) · {row.available} dispo · {row.reserved} loué(s)</small>
                     </div>
                     <StatusPill tone={row.unavailable ? "warning" : "success"}>{row.unavailable ? `${row.unavailable} indispo` : "Fluide"}</StatusPill>
                   </article>
@@ -1048,16 +1048,16 @@ function ProviderDashboardPage() {
                   emptyMessage="Aucun produit dans le parc."
                   columns={[
                     { key: "product", label: "Produit", render: (row) => <div className="table-title"><strong>{row.name}</strong><small>{row.category}</small></div> },
-                    { key: "stock", label: "Quantite", render: (row) => row.stock },
+                    { key: "stock", label: "Quantité", render: (row) => row.stock },
                     { key: "availableUnits", label: "Disponible", render: (row) => row.availableUnits },
                     {
                       key: "trackedUnits",
-                      label: "Suivi unite",
+                      label: "Suivi unité",
                       render: (row) =>
                         row.profile.serial_tracking ? (
                           <div className="table-title">
-                            <strong>{row.trackedUnitsCount} unite(s)</strong>
-                            <small>{row.checkedOutUnits} sortie(s) Â· {row.unitCoverageGap} a renseigner</small>
+                            <strong>{row.trackedUnitsCount} unité(s)</strong>
+                            <small>{row.checkedOutUnits} sortie(s) · {row.unitCoverageGap} à renseigner</small>
                           </div>
                         ) : (
                           "Non"
@@ -1075,10 +1075,10 @@ function ProviderDashboardPage() {
                         <StatusPill tone={product.statusMeta.tone}>{product.statusMeta.label}</StatusPill>
                       </header>
                       <div className="summary-cards">
-                        <div className="detail-card"><strong>{product.stock}</strong><span className="muted-text">quantite totale</span></div>
+                          <div className="detail-card"><strong>{product.stock}</strong><span className="muted-text">quantité totale</span></div>
                         <div className="detail-card"><strong>{product.availableUnits}</strong><span className="muted-text">disponible(s)</span></div>
                         {product.profile.serial_tracking ? (
-                          <div className="detail-card"><strong>{product.trackedUnitsCount}</strong><span className="muted-text">unite(s) suivie(s)</span></div>
+                          <div className="detail-card"><strong>{product.trackedUnitsCount}</strong><span className="muted-text">unité(s) suivie(s)</span></div>
                         ) : null}
                       </div>
                     </article>
@@ -1088,11 +1088,11 @@ function ProviderDashboardPage() {
 
               <Panel
                 title="Journal des stocks"
-                description="Les derniers mouvements terrain, creations d'unites et changements d'etat."
+                description="Les derniers mouvements terrain, créations d'unités et changements d'état."
               >
                 <DataTable
                   rows={recentStockMovements}
-                  emptyMessage="Aucun mouvement de stock enregistre pour le moment."
+                  emptyMessage="Aucun mouvement de stock enregistré pour le moment."
                   columns={[
                     {
                       key: "movement",
@@ -1115,7 +1115,7 @@ function ProviderDashboardPage() {
                     },
                     {
                       key: "transition",
-                      label: "Etat",
+                      label: "État",
                       render: (row) => (
                         <div className="table-title">
                           <strong>{row.from_state || "-"}{" -> "}{row.to_state || "-"}</strong>
@@ -1123,7 +1123,7 @@ function ProviderDashboardPage() {
                         </div>
                       ),
                     },
-                    { key: "reservation", label: "Reservation", render: (row) => row.reservation_reference || "-" },
+                    { key: "reservation", label: "Réservation", render: (row) => row.reservation_reference || "-" },
                     { key: "date", label: "Date", render: (row) => formatDateTime(row.occurred_at) },
                   ]}
                 />

@@ -8,8 +8,8 @@ import { useAuth } from "./auth-provider";
 const navigation = [
   { href: "/dashboard", label: "Dashboard", hint: "Vue globale" },
   { href: "/clients", label: "Clients", hint: "Base clients" },
-  { href: "/materiel", label: "Materiel", hint: "Catalogue & stock" },
-  { href: "/reservations", label: "Reservations", hint: "Suivi des contrats" },
+  { href: "/materiel", label: "Matériel", hint: "Catalogue & stock" },
+  { href: "/reservations", label: "Réservations", hint: "Suivi des contrats" },
   { href: "/planning", label: "Planning", hint: "Jour / semaine" },
 ];
 
@@ -23,7 +23,7 @@ export default function Sidebar() {
         <p className="eyebrow">Gestion locative</p>
         <h1>LOKIFY</h1>
         <p className="brand-copy">
-          Gere votre materiel, vos clients et vos reservations dans un espace unique.
+          Gérez votre matériel, vos clients et vos réservations dans un espace unique.
         </p>
       </div>
 
@@ -45,9 +45,8 @@ export default function Sidebar() {
       </nav>
 
       <button type="button" className="button ghost" onClick={logout}>
-        Se deconnecter
+        Se déconnecter
       </button>
     </aside>
   );
 }
-

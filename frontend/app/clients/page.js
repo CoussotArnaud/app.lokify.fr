@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useDeferredValue, useEffect, useState } from "react";
+import { Suspense, useDeferredValue, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/app-shell";
 import DataTable from "../../components/data-table";
@@ -67,9 +68,16 @@ const buildDisplayAddress = (client, profile = {}) => {
   return [baseAddress, cityLine].filter(Boolean).join(", ") || client.address || "Adresse a renseigner";
 };
 
-export default function ClientsPage() {
+function ClientsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const workspace = useLokifyWorkspace();
   const [clientProfiles, setClientProfiles] = useState({});
+  const [scope, setScope] = useState(
+    searchParams.get("scope") === "archived" ? "archived" : "active"
+  );
+  const [archivedClients, setArchivedClients] = useState([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [segmentFilter, setSegmentFilter] = useState("all");
   const [page, setPage] = useState(1);
@@ -85,12 +93,66 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    setPage(1);
-  }, [segmentFilter, deferredSearch]);
+    setScope(searchParams.get("scope") === "archived" ? "archived" : "active");
+  }, [searchParams]);
 
-  const enrichedClients = workspace.clients.map((client) => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadArchivedClients = async () => {
+      setArchivedLoading(true);
+
+      try {
+        const response = await workspace.listClientsByScope("archived");
+
+        if (!cancelled) {
+          setArchivedClients(response.clients || []);
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setArchivedClients([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setArchivedLoading(false);
+        }
+      }
+    };
+
+    void loadArchivedClients();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace.loading]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [segmentFilter, deferredSearch, scope]);
+
+  const updateScope = (nextScope) => {
+    const normalizedScope = nextScope === "archived" ? "archived" : "active";
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+
+    if (normalizedScope === "archived") {
+      nextSearchParams.set("scope", "archived");
+    } else {
+      nextSearchParams.delete("scope");
+    }
+
+    router.replace(
+      nextSearchParams.toString() ? `/clients?${nextSearchParams.toString()}` : "/clients"
+    );
+  };
+
+  const sourceClients = scope === "archived" ? archivedClients : workspace.clients;
+
+  const enrichedClients = sourceClients.map((client) => {
     const profile = clientProfiles[client.id] || {};
     const contact = resolveClientFormContact(profile, client);
+    const reservationCount =
+      workspace.reservations.filter((reservation) => reservation.client_id === client.id).length ||
+      Number(client.metrics?.reservationCount || 0);
 
     return {
       ...client,
@@ -104,6 +166,7 @@ export default function ClientsPage() {
       city: profile.city || "",
       newsletter_opt_in: Boolean(profile.newsletter_opt_in),
       display_address: buildDisplayAddress(client, profile),
+      reservationCount,
     };
   });
 
@@ -132,6 +195,10 @@ export default function ClientsPage() {
   };
 
   const openCreateModal = () => {
+    if (scope === "archived") {
+      return;
+    }
+
     setEditingId(null);
     setForm(createEmptyClientForm());
     setIsModalOpen(true);
@@ -226,15 +293,20 @@ export default function ClientsPage() {
       });
 
       setClientProfiles(nextProfiles);
-      setFeedback(editingId ? "Client mis a jour." : "Client ajoute.");
+      setFeedback(editingId ? "Client mis à jour." : "Client ajouté.");
       resetForm();
     } catch (submissionError) {
       setError(submissionError.message);
     }
   };
 
-  const handleDelete = async (clientId) => {
-    if (!window.confirm("Supprimer ce client ?")) {
+  const reloadArchivedClients = async () => {
+    const response = await workspace.listClientsByScope("archived");
+    setArchivedClients(response.clients || []);
+  };
+
+  const handleArchive = async (clientId) => {
+    if (!window.confirm("Archiver ce client ? Aucune donnée ne sera supprimée.")) {
       return;
     }
 
@@ -242,11 +314,29 @@ export default function ClientsPage() {
     setFeedback("");
 
     try {
-      await workspace.deleteClient(clientId);
-      setFeedback("Client supprime.");
+      await workspace.archiveClient(clientId);
+      await reloadArchivedClients();
+      setFeedback("Client archivé. Les données sont conservées dans les archives.");
       if (editingId === clientId) {
         resetForm();
       }
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
+  const handleRestore = async (clientId) => {
+    if (!window.confirm("Restaurer ce client archivé ?")) {
+      return;
+    }
+
+    setError("");
+    setFeedback("");
+
+    try {
+      await workspace.restoreClient(clientId);
+      await reloadArchivedClients();
+      setFeedback("Client restauré.");
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -259,7 +349,7 @@ export default function ClientsPage() {
         { label: "Type", value: (row) => row.client_type },
         { label: "Nom", value: (row) => row.full_name },
         { label: "Email", value: (row) => row.email },
-        { label: "Telephone", value: (row) => formatClientPhone(row.country_code, row.phone_number) },
+        { label: "Téléphone", value: (row) => formatClientPhone(row.country_code, row.phone_number) },
         { label: "Adresse", value: (row) => row.display_address },
       ],
       filteredClients
@@ -276,15 +366,17 @@ export default function ClientsPage() {
           <div>
             <p className="eyebrow">Clients</p>
             <h3>Vos clients</h3>
-            <p>Un annuaire plus simple, plus large et plus fluide, avec une vraie modale de creation et d'edition.</p>
+            <p>Annuaire actif et archives consultables avec restauration complète sans suppression destructive.</p>
           </div>
           <div className="page-header-actions">
             <button type="button" className="button ghost" onClick={exportClients}>
               Export CSV
             </button>
-            <button type="button" className="button primary" onClick={openCreateModal}>
-              + Client
-            </button>
+            {scope === "active" ? (
+              <button type="button" className="button primary" onClick={openCreateModal}>
+                + Client
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -293,16 +385,34 @@ export default function ClientsPage() {
         {feedback ? <p className="feedback success">{feedback}</p> : null}
 
         <section className="metric-grid">
-          <MetricCard icon="users" label="Clients suivis" value={workspace.clients.length} helper="Base exploitable pour les reservations" tone="info" />
-          <MetricCard icon="catalog" label="Professionnels" value={enrichedClients.filter((client) => client.client_type === "Professionnel").length} helper="Agences, entreprises, associations" tone="success" />
-          <MetricCard icon="calendar" label="Clients actifs" value={workspace.clients.filter((client) => client.reservationCount > 0).length} helper="Au moins une reservation rattachee" tone="warning" />
+          <MetricCard icon="users" label="Clients actifs" value={workspace.clients.length} helper="Base visible par défaut dans l'annuaire" tone="info" />
+          <MetricCard icon="catalog" label="Archives" value={archivedClients.length} helper="Dossiers conservés et restaurables" tone="warning" />
+          <MetricCard icon="calendar" label="Professionnels" value={enrichedClients.filter((client) => client.client_type === "Professionnel").length} helper="Sur la vue actuellement affichée" tone="success" />
         </section>
 
         <Panel
-          title="Annuaire clients"
-          description="Recherche, export et actions rapides dans une page plus aeree."
+          title={scope === "archived" ? "Archives / Corbeille clients" : "Annuaire clients"}
+          description={
+            scope === "archived"
+              ? "Consultez les dossiers archivés et restaurez-les sans perte de données."
+              : "Recherche, export et actions rapides sur les clients actifs."
+          }
           actions={
             <div className="toolbar-group">
+              <button
+                type="button"
+                className={`button ${scope === "active" ? "primary" : "ghost"}`}
+                onClick={() => updateScope("active")}
+              >
+                Actifs
+              </button>
+              <button
+                type="button"
+                className={`button ${scope === "archived" ? "primary" : "ghost"}`}
+                onClick={() => updateScope("archived")}
+              >
+                Archives / Corbeille
+              </button>
               <select value={segmentFilter} onChange={(event) => setSegmentFilter(event.target.value)}>
                 <option value="all">Tous les types</option>
                 <option value="Professionnel">Professionnels</option>
@@ -313,13 +423,21 @@ export default function ClientsPage() {
         >
           <div className="stack">
             <div className="toolbar-spread">
-              <SearchInput value={search} onChange={setSearch} placeholder="Rechercher par nom, email ou telephone" />
-              <StatusPill tone="info">{filteredClients.length} client(s)</StatusPill>
+              <SearchInput value={search} onChange={setSearch} placeholder="Rechercher par nom, e-mail ou téléphone" />
+              <StatusPill tone={scope === "archived" ? "warning" : "info"}>
+                {filteredClients.length} {scope === "archived" ? "archivé(s)" : "client(s)"}
+              </StatusPill>
             </div>
 
             <DataTable
               rows={paginatedClients}
-              emptyMessage="Aucun client sur cette vue."
+              emptyMessage={
+                scope === "archived"
+                  ? archivedLoading
+                    ? "Chargement des archives..."
+                    : "Aucun client archivé."
+                  : "Aucun client sur cette vue."
+              }
               columns={[
                 {
                   key: "name",
@@ -343,7 +461,7 @@ export default function ClientsPage() {
                 },
                 {
                   key: "phone",
-                  label: "Telephone",
+                  label: "Téléphone",
                   render: (row) => formatClientPhone(row.country_code, row.phone_number),
                 },
                 {
@@ -360,15 +478,23 @@ export default function ClientsPage() {
                   label: "Action",
                   render: (row) => (
                     <div className="row-actions">
-                      <Link href={`/clients/${row.id}`} className="action-button">
+                      <Link href={`/clients/${row.id}${scope === "archived" ? "?scope=archived" : ""}`} className="action-button">
                         Voir
                       </Link>
-                      <button type="button" className="action-button" onClick={() => startEdit(row)}>
-                        Modifier
-                      </button>
-                      <button type="button" className="action-button danger" onClick={() => handleDelete(row.id)}>
-                        Supprimer
-                      </button>
+                      {scope === "active" ? (
+                        <>
+                          <button type="button" className="action-button" onClick={() => startEdit(row)}>
+                            Modifier
+                          </button>
+                          <button type="button" className="action-button danger" onClick={() => handleArchive(row.id)}>
+                            Archiver
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" className="action-button" onClick={() => handleRestore(row.id)}>
+                          Restaurer
+                        </button>
+                      )}
                     </div>
                   ),
                 },
@@ -382,7 +508,7 @@ export default function ClientsPage() {
         <ModalShell
           open={isModalOpen}
           title={editingId ? "Modifier le client" : "Nouveau client"}
-          description="Une fiche plus complete, mais toujours simple a renseigner."
+          description="Une fiche complète, sans impact sur les archives et la restauration."
           size="xl"
           onClose={resetForm}
         >
@@ -396,7 +522,7 @@ export default function ClientsPage() {
                   Photo / avatar
                 </label>
                 <input id="client-avatar" type="file" accept="image/*" hidden onChange={(event) => handleAvatarChange(event.target.files?.[0])} />
-                <p className="field-hint">Optionnel. Un apercu propre est conserve pour la fiche client.</p>
+                <p className="field-hint">Optionnel. Un aperçu propre est conservé pour la fiche client.</p>
               </div>
             </div>
 
@@ -422,7 +548,7 @@ export default function ClientsPage() {
 
             <div className="form-grid two-columns">
               <div className="field">
-                <label htmlFor="client-first-name">Prenom</label>
+                <label htmlFor="client-first-name">Prénom</label>
                 <input id="client-first-name" value={form.first_name} onChange={(event) => setForm((current) => ({ ...current, first_name: event.target.value }))} required />
               </div>
               <div className="field">
@@ -433,7 +559,7 @@ export default function ClientsPage() {
 
             <div className="form-grid two-columns">
               <div className="field">
-                <label htmlFor="client-phone">Telephone</label>
+                <label htmlFor="client-phone">Téléphone</label>
                 <input id="client-phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </div>
               <div className="field">
@@ -444,7 +570,7 @@ export default function ClientsPage() {
 
             <div className="field">
               <label htmlFor="client-address">Adresse</label>
-              <input id="client-address" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} placeholder="Rue, batiment, complement..." />
+              <input id="client-address" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} placeholder="Rue, bâtiment, complément..." />
             </div>
 
             <div className="form-grid two-columns">
@@ -459,21 +585,21 @@ export default function ClientsPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="client-notes">Note interne</label>
-              <textarea id="client-notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Preferences, contexte, besoins recurrents..." />
+              <label htmlFor="client-notes">Note de suivi</label>
+              <textarea id="client-notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Préférences, contexte, besoins récurrents..." />
             </div>
 
             <label className="detail-card">
               <strong>Newsletter</strong>
               <div className="row-actions">
                 <input type="checkbox" checked={form.newsletter_opt_in} onChange={(event) => setForm((current) => ({ ...current, newsletter_opt_in: event.target.checked }))} />
-                <span className="muted-text">Le client accepte de recevoir les actualites ou offres.</span>
+                <span className="muted-text">Le client accepte de recevoir les actualités ou offres.</span>
               </div>
             </label>
 
             <div className="row-actions">
               <button type="submit" className="button primary" disabled={workspace.mutating}>
-                {workspace.mutating ? "Enregistrement..." : editingId ? "Sauvegarder" : "Creer le client"}
+                {workspace.mutating ? "Enregistrement..." : editingId ? "Sauvegarder" : "Créer le client"}
               </button>
               <button type="button" className="button ghost" onClick={resetForm}>
                 Annuler
@@ -483,5 +609,19 @@ export default function ClientsPage() {
         </ModalShell>
       </div>
     </AppShell>
+  );
+}
+
+export default function ClientsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="page-stack" />
+        </AppShell>
+      }
+    >
+      <ClientsPageContent />
+    </Suspense>
   );
 }

@@ -109,9 +109,9 @@ export default function LoginPage() {
       <section className="login-hero">
         <div>
           <p className="eyebrow">Location professionnelle</p>
-          <h1>Prenez le controle de votre parc materiel.</h1>
+          <h1>Prenez le contrôle de votre parc matériel.</h1>
           <p>
-            LOKIFY regroupe la reservation, le suivi client, le planning et les indicateurs
+            LOKIFY regroupe la réservation, le suivi client, le planning et les indicateurs
             essentiels dans une interface claire et rapide.
           </p>
         </div>
@@ -119,7 +119,7 @@ export default function LoginPage() {
         <div className="hero-grid">
           <div className="hero-stat">
             <strong>Dashboard</strong>
-            <span>Pilotage reservation & revenu.</span>
+            <span>Pilotage réservation & revenu.</span>
           </div>
           <div className="hero-stat">
             <strong>Planning</strong>
@@ -127,7 +127,7 @@ export default function LoginPage() {
           </div>
           <div className="hero-stat">
             <strong>Pilotage</strong>
-            <span>Outils centralises pour votre activite.</span>
+            <span>Outils centralisés pour votre activité.</span>
           </div>
         </div>
       </section>
@@ -136,10 +136,10 @@ export default function LoginPage() {
         <div className="login-brand login-brand-card">
           <BrandLogo className="brand-logo-login-main" />
         </div>
-        <p className="eyebrow">Acces plateforme</p>
-        <h2>{mode === "login" ? "Connexion" : "Creer un compte"}</h2>
+        <p className="eyebrow">Accès plateforme</p>
+        <h2>{mode === "login" ? "Connexion" : "Créer un compte"}</h2>
         <p className="muted-text">
-          Connectez-vous a votre espace Lokify ou creez votre compte prestataire.
+          Connectez-vous à votre espace Lokify ou créez votre compte prestataire.
         </p>
 
         <div className="tabs" role="tablist" aria-label="Choisir le mode">
@@ -163,7 +163,7 @@ export default function LoginPage() {
           {mode === "register" ? (
             <>
               <div className="field">
-                <label htmlFor="first_name">Prenom</label>
+                <label htmlFor="first_name">Prénom</label>
                 <input
                   id="first_name"
                   value={registerForm.first_name}
@@ -195,7 +195,7 @@ export default function LoginPage() {
               </div>
 
               <div className="field field-span-2">
-                <label htmlFor="company_name">Nom de la societe</label>
+                <label htmlFor="company_name">Nom de la société</label>
                 <input
                   id="company_name"
                   value={registerForm.company_name}
@@ -226,7 +226,7 @@ export default function LoginPage() {
                   </p>
                 ) : null}
                 <p className="field-helper">
-                  La verification se lance automatiquement des que les 14 chiffres sont saisis.
+                  La vérification se lance automatiquement dès que les 14 chiffres sont saisis.
                 </p>
               </div>
 
@@ -330,8 +330,8 @@ export default function LoginPage() {
 
           {mode === "register" ? (
             <p className="muted-text field-span-2 login-register-note">
-              L&apos;inscription est reservee aux professionnels. Le SIRET est verifie
-              automatiquement et peut preremplir les informations de l&apos;entreprise.
+              L&apos;inscription est réservée aux professionnels. Le SIRET est vérifié
+              automatiquement et peut préremplir les informations de l&apos;entreprise.
             </p>
           ) : null}
 
@@ -340,13 +340,13 @@ export default function LoginPage() {
             className={`button primary ${mode === "register" ? "field-span-2" : ""}`}
             disabled={loading}
           >
-            {loading ? "Chargement..." : mode === "login" ? "Se connecter" : "Creer mon compte"}
+            {loading ? "Chargement..." : mode === "login" ? "Se connecter" : "Créer mon compte"}
           </button>
         </form>
 
         {mode === "login" ? (
           <p className="login-footnote">
-            <Link href="/mot-de-passe-oublie">Mot de passe oublie ?</Link>
+            <Link href="/mot-de-passe-oublie">Mot de passe oublié ?</Link>
           </p>
         ) : null}
 

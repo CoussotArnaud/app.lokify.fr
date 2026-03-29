@@ -7,7 +7,7 @@ export const mainNavigation = [
   },
   {
     href: "/reservations",
-    label: "Reservations",
+    label: "Réservations",
     shortLabel: "RS",
     icon: "calendar",
   },
@@ -25,7 +25,7 @@ export const mainNavigation = [
   },
   {
     href: "/toolbox",
-    label: "Boite a outils",
+    label: "Boîte à outils",
     shortLabel: "BX",
     icon: "toolbox",
   },
@@ -40,15 +40,15 @@ export const mainNavigation = [
 export const quickActionItems = [
   {
     id: "reservation",
-    label: "Nouvelle reservation",
+    label: "Nouvelle réservation",
     href: "/reservations?mode=create",
-    helper: "Creer une location et planifier la sortie.",
+    helper: "Créer une location et planifier la sortie.",
   },
   {
     id: "quote",
     label: "Nouveau devis",
     href: "/reservations?module=documents&mode=quote",
-    helper: "Preparer une base commerciale avant validation.",
+    helper: "Préparer une base commerciale avant validation.",
   },
   {
     id: "requests",
@@ -80,32 +80,74 @@ export const accountMenuItems = [
   },
   {
     id: "settings",
-    label: "Parametres",
+    label: "Paramètres",
     href: "/parametres",
     icon: "settings",
   },
 ];
 
-export const reservationStatusMeta = {
-  draft: {
-    label: "Brouillon",
-    tone: "warning",
-  },
-  confirmed: {
-    label: "Confirmee",
-    tone: "success",
-  },
-  completed: {
-    label: "Terminee",
-    tone: "info",
-  },
-  cancelled: {
-    label: "Annulee",
-    tone: "danger",
+export const defaultReservationStatuses = [
+  { code: "pending", label: "Non payé / En attente", color: "#D64F4F", position: 0, tone: "danger" },
+  { code: "draft", label: "À finaliser", color: "#E39B2E", position: 1, tone: "warning" },
+  { code: "confirmed", label: "Confirmé / Prêt", color: "#1C9C6B", position: 2, tone: "success" },
+  { code: "completed", label: "Terminé", color: "#2F7DE1", position: 3, tone: "info" },
+  { code: "cancelled", label: "Annulé", color: "#7A869A", position: 4, tone: "neutral" },
+];
+
+const defaultReservationStatusMetaByCode = defaultReservationStatuses.reduce((accumulator, status) => {
+  accumulator[status.code] = {
+    label: status.label,
+    tone: status.tone,
+    color: status.color,
+    position: status.position,
+  };
+  return accumulator;
+}, {});
+
+export const buildReservationStatusMeta = (statuses = defaultReservationStatuses) =>
+  statuses.reduce((accumulator, status) => {
+    const fallback = defaultReservationStatusMetaByCode[status.code] || {
+      tone: "neutral",
+      color: "#7A869A",
+      position: 99,
+    };
+
+    accumulator[status.code] = {
+      label: status.label || fallback.label || status.code,
+      tone: status.tone || fallback.tone,
+      color: status.color || fallback.color,
+      position: status.position ?? fallback.position,
+    };
+    return accumulator;
+  }, {});
+
+export const reservationStatusMeta = buildReservationStatusMeta();
+
+export const reservationDepositStatusMeta = {
+  not_required: {
+    label: "Aucune caution",
+    tone: "neutral",
+    color: "#7A869A",
   },
   pending: {
-    label: "A valider",
+    label: "À récupérer",
     tone: "warning",
+    color: "#E39B2E",
+  },
+  collected: {
+    label: "Récupérée",
+    tone: "success",
+    color: "#1C9C6B",
+  },
+  released: {
+    label: "Restituée",
+    tone: "info",
+    color: "#2F7DE1",
+  },
+  waived: {
+    label: "Abandonnée",
+    tone: "danger",
+    color: "#D64F4F",
   },
 };
 
@@ -115,7 +157,7 @@ export const productStatusMeta = {
     tone: "success",
   },
   reserved: {
-    label: "Reserve",
+    label: "Réservé",
     tone: "warning",
   },
   maintenance: {
@@ -127,13 +169,89 @@ export const productStatusMeta = {
     tone: "danger",
   },
   inactive: {
-    label: "Desactive",
+    label: "Désactivé",
     tone: "neutral",
   },
 };
 
+export const productUnitStatusMeta = {
+  available: {
+    label: "Disponible",
+    tone: "success",
+    color: "#1C9C6B",
+  },
+  out: {
+    label: "Sortie",
+    tone: "warning",
+    color: "#E39B2E",
+  },
+  maintenance: {
+    label: "Maintenance",
+    tone: "neutral",
+    color: "#7A869A",
+  },
+  unavailable: {
+    label: "Indisponible",
+    tone: "danger",
+    color: "#D64F4F",
+  },
+};
+
+export const stockMovementMeta = {
+  unit_created: {
+    label: "Création unité",
+    tone: "info",
+  },
+  availability_change: {
+    label: "Changement statut",
+    tone: "warning",
+  },
+  departure: {
+    label: "Départ",
+    tone: "success",
+  },
+  return: {
+    label: "Retour",
+    tone: "info",
+  },
+};
+
+export const deliveryTourStatusMeta = {
+  draft: {
+    label: "À préparer",
+    tone: "warning",
+  },
+  planned: {
+    label: "Planifiée",
+    tone: "success",
+  },
+  in_progress: {
+    label: "En cours",
+    tone: "info",
+  },
+  completed: {
+    label: "Terminée",
+    tone: "neutral",
+  },
+};
+
+export const deliveryAssignmentMeta = {
+  delivery: {
+    label: "Livraison",
+    tone: "success",
+  },
+  return: {
+    label: "Retour",
+    tone: "info",
+  },
+  pickup: {
+    label: "Enlèvement",
+    tone: "warning",
+  },
+};
+
 export const dashboardTabs = [
-  { id: "reservations", label: "Reservations" },
+  { id: "reservations", label: "Réservations" },
   { id: "deliveries", label: "Livraisons" },
   { id: "stock", label: "Stock" },
 ];
@@ -141,7 +259,7 @@ export const dashboardTabs = [
 export const dashboardDisplayModes = [
   { id: "calendar", label: "Calendrier" },
   { id: "list", label: "Liste" },
-  { id: "day", label: "Ma journee" },
+  { id: "day", label: "Ma journée" },
 ];
 
 export const dashboardHorizonModes = [
@@ -151,14 +269,14 @@ export const dashboardHorizonModes = [
 ];
 
 export const reservationSubNavigation = [
-  { id: "reservations", label: "Reservations" },
+  { id: "reservations", label: "Réservations" },
   { id: "documents", label: "Documents" },
   { id: "cash", label: "Journal de caisse" },
 ];
 
 export const catalogueViews = [
   { id: "all", label: "Tous les produits" },
-  { id: "categories", label: "Categories" },
+  { id: "categories", label: "Catégories" },
   { id: "packs", label: "Packs" },
   { id: "products", label: "Produits" },
 ];
@@ -167,8 +285,8 @@ export const statisticsNavigation = [
   { id: "overview", label: "Vue globale" },
   { id: "revenue", label: "CA par jour" },
   { id: "channels", label: "Canaux" },
-  { id: "categories", label: "Categories" },
-  { id: "reservations", label: "Reservations" },
+  { id: "categories", label: "Catégories" },
+  { id: "reservations", label: "Réservations" },
   { id: "deliveries", label: "Livraisons" },
   { id: "bestsellers", label: "Best sellers" },
   { id: "online", label: "Boutique" },
@@ -178,8 +296,8 @@ export const statisticsNavigation = [
 
 export const toolboxTabs = [
   { id: "all", label: "Tous les outils" },
-  { id: "new", label: "Nouveautes" },
-  { id: "soon", label: "Bientot disponible" },
+  { id: "new", label: "Nouveautés" },
+  { id: "soon", label: "Bientôt disponible" },
   { id: "mine", label: "Mes outils" },
 ];
 
@@ -187,17 +305,17 @@ export const categoryBlueprints = [
   {
     id: "animation-photo",
     name: "Animation photo",
-    type: "Evenementiel",
-    description: "Bornes, experiences selfie et activations photo pour mariages, salons et lancements.",
+    type: "Événementiel",
+    description: "Bornes, expériences selfie et activations photo pour mariages, salons et lancements.",
     filters: ["format", "impression", "branding"],
     inspectionEnabled: true,
     durations: [
       { label: "Express", hours: 4 },
-      { label: "Journee", hours: 10 },
+      { label: "Journée", hours: 10 },
       { label: "Week-end", hours: 48 },
     ],
     ranges: [
-      { label: "Soiree", minHours: 6, maxHours: 12 },
+      { label: "Soirée", minHours: 6, maxHours: 12 },
       { label: "Activation longue", minHours: 24, maxHours: 72 },
     ],
     status: "active",
@@ -206,12 +324,12 @@ export const categoryBlueprints = [
     id: "video-scene",
     name: "Video & scene",
     type: "Experience premium",
-    description: "Video booths, capsules et experiences de scene pour evenements immersifs.",
+    description: "Video booths, capsules et expériences de scène pour événements immersifs.",
     filters: ["captation", "rotation", "livraison"],
     inspectionEnabled: true,
     durations: [
       { label: "Session", hours: 6 },
-      { label: "Journee scene", hours: 12 },
+      { label: "Journée scène", hours: 12 },
     ],
     ranges: [
       { label: "Production", minHours: 12, maxHours: 36 },
@@ -220,26 +338,26 @@ export const categoryBlueprints = [
   },
   {
     id: "mobilite-evenementielle",
-    name: "Mobilite evenementielle",
-    type: "Mobilite",
-    description: "Trottinettes, solutions de deplacement et materiel pour circulation sur site.",
+    name: "Mobilité événementielle",
+    type: "Mobilité",
+    description: "Trottinettes, solutions de déplacement et matériel pour circulation sur site.",
     filters: ["autonomie", "zone", "assurance"],
     inspectionEnabled: false,
     durations: [
-      { label: "Demi-journee", hours: 5 },
-      { label: "Journee", hours: 10 },
+      { label: "Demi-journée", hours: 5 },
+      { label: "Journée", hours: 10 },
       { label: "Semaine", hours: 120 },
     ],
     ranges: [
-      { label: "Longue duree", minHours: 72, maxHours: 240 },
+      { label: "Longue durée", minHours: 72, maxHours: 240 },
     ],
     status: "active",
   },
   {
     id: "pack-agence",
     name: "Pack agence",
-    type: "Offre composee",
-    description: "Compositions rapides pour prestations recurrentes, roadshows et activations marques.",
+    type: "Offre composée",
+    description: "Compositions rapides pour prestations récurrentes, roadshows et activations marques.",
     filters: ["branding", "transport", "staffing"],
     inspectionEnabled: true,
     durations: [
@@ -256,8 +374,8 @@ export const categoryBlueprints = [
 export const packBlueprints = [
   {
     id: "pack-soiree-signature",
-    name: "Pack Soiree Signature",
-    summary: "Une formule simple pour evenement prive avec animation photo et accessoires.",
+    name: "Pack Soirée Signature",
+    summary: "Une formule simple pour événement privé avec animation photo et accessoires.",
     categoryId: "animation-photo",
     productHints: ["Photobooth Premium"],
     status: "active",
@@ -275,9 +393,9 @@ export const packBlueprints = [
   {
     id: "pack-circulation-site",
     name: "Pack Circulation Site",
-    summary: "Mobilite staff et logistique legere sur grands espaces ou tournages.",
+    summary: "Mobilité staff et logistique légère sur grands espaces ou tournages.",
     categoryId: "mobilite-evenementielle",
-    productHints: ["Trottinette Electrique"],
+    productHints: ["Trottinette Électrique"],
     status: "inactive",
     priceFrom: 420,
   },
@@ -286,28 +404,28 @@ export const packBlueprints = [
 export const deliveryTemplates = [
   {
     id: "tournee-matin",
-    name: "Tournee matin",
-    driver: "Equipe logistique A",
+    name: "Tournée matin",
+    driver: "Équipe logistique A",
     area: "Paris centre",
     dayOffset: 1,
     status: "planned",
     stops: [
-      { label: "Chargement depot", slot: "07:30", kind: "depot" },
+      { label: "Chargement dépôt", slot: "07:30", kind: "depot" },
       { label: "Installation client", slot: "09:15", kind: "delivery" },
-      { label: "Controle terrain", slot: "11:00", kind: "check" },
+      { label: "Contrôle terrain", slot: "11:00", kind: "check" },
     ],
   },
   {
     id: "tournee-apres-midi",
-    name: "Tournee apres-midi",
-    driver: "Equipe logistique B",
-    area: "Lyon metropole",
+    name: "Tournée après-midi",
+    driver: "Équipe logistique B",
+    area: "Lyon métropole",
     dayOffset: 2,
     status: "draft",
     stops: [
-      { label: "Preparation du materiel", slot: "12:30", kind: "depot" },
+      { label: "Préparation du matériel", slot: "12:30", kind: "depot" },
       { label: "Livraison premium", slot: "15:00", kind: "delivery" },
-      { label: "Recuperation retour", slot: "18:15", kind: "pickup" },
+      { label: "Récupération retour", slot: "18:15", kind: "pickup" },
     ],
   },
 ];
@@ -326,7 +444,7 @@ export const toolboxModules = [
   {
     id: "review-collector",
     title: "Avis clients",
-    description: "Centralisez la collecte d'avis post-evenement pour rassurer et convertir.",
+    description: "Centralisez la collecte d'avis post-événement pour rassurer et convertir.",
     category: "Marketing",
     accent: "sun",
     isNew: true,
@@ -336,7 +454,7 @@ export const toolboxModules = [
   {
     id: "insurance-module",
     title: "Assurance",
-    description: "Structurez les garanties, franchises et justificatifs lies a vos locations.",
+    description: "Structurez les garanties, franchises et justificatifs liés à vos locations.",
     category: "Protection",
     accent: "lagoon",
     isNew: false,
@@ -345,8 +463,8 @@ export const toolboxModules = [
   },
   {
     id: "holiday-vouchers",
-    title: "Cheques vacances",
-    description: "Preparez une activation pour accepter des moyens de paiement complementaires.",
+    title: "Chèques vacances",
+    description: "Préparez une activation pour accepter des moyens de paiement complémentaires.",
     category: "Paiement",
     accent: "ink",
     isNew: false,
@@ -355,9 +473,9 @@ export const toolboxModules = [
   },
   {
     id: "deposit-guarantee",
-    title: "Depot & caution",
+    title: "Dépôt & caution",
     description: "Suivez les cautions, restitutions et justificatifs sans multiplier les outils.",
-    category: "Operations",
+    category: "Opérations",
     accent: "rose",
     isNew: false,
     isComingSoon: false,
@@ -365,9 +483,9 @@ export const toolboxModules = [
   },
   {
     id: "future-addons",
-    title: "Futurs modules",
-    description: "Gardez une base propre pour accueillir d'autres briques SaaS sans effet marketplace.",
-    category: "Roadmap",
+    title: "Modules complémentaires",
+    description: "Ajoutez d'autres modules selon l'évolution de votre activité.",
+    category: "Extensions",
     accent: "amber",
     isNew: false,
     isComingSoon: true,

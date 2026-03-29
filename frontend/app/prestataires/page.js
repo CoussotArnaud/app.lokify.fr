@@ -38,9 +38,12 @@ const initialCreateForm = {
 function ProvidersPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const scope = searchParams.get("scope") === "archived" ? "archived" : "active";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [providers, setProviders] = useState([]);
+  const [archivedProviders, setArchivedProviders] = useState([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
   const [metrics, setMetrics] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [createForm, setCreateForm] = useState(initialCreateForm);
@@ -83,6 +86,40 @@ function ProvidersPageContent() {
   useEffect(() => {
     loadProviders();
   }, []);
+
+  useEffect(() => {
+    if (scope !== "archived") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadArchivedProviders = async () => {
+      setArchivedLoading(true);
+
+      try {
+        const response = await apiRequest("/admin/providers?scope=archived");
+
+        if (!cancelled) {
+          setArchivedProviders(response.providers || []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setFeedback({ type: "error", message: error.message });
+        }
+      } finally {
+        if (!cancelled) {
+          setArchivedLoading(false);
+        }
+      }
+    };
+
+    void loadArchivedProviders();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scope]);
 
   const closeCreateModal = () => {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
@@ -134,7 +171,7 @@ function ProvidersPageContent() {
     const confirmed =
       typeof window === "undefined"
         ? true
-        : window.confirm("Supprimer ce prestataire et ses donnees ?");
+        : window.confirm("Archiver ce prestataire ? Aucune donnée ne sera supprimée.");
 
     if (!confirmed) {
       return;
@@ -143,18 +180,66 @@ function ProvidersPageContent() {
     setFeedback(null);
 
     try {
-      await apiRequest(`/admin/providers/${providerId}`, {
-        method: "DELETE",
+      await apiRequest(`/admin/providers/${providerId}/archive`, {
+        method: "POST",
       });
       await loadProviders();
+      if (scope === "archived") {
+        const archivedResponse = await apiRequest("/admin/providers?scope=archived");
+        setArchivedProviders(archivedResponse.providers || []);
+      }
       setFeedback({
         type: "success",
-        message: "Le prestataire a ete supprime.",
+        message: "Le prestataire a été archivé. Toutes les données restent conservées.",
       });
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
     }
   };
+
+  const handleRestore = async (providerId) => {
+    const confirmed =
+      typeof window === "undefined" ? true : window.confirm("Restaurer ce prestataire archivé ?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      await apiRequest(`/admin/providers/${providerId}/restore`, {
+        method: "POST",
+      });
+      await loadProviders();
+      const archivedResponse = await apiRequest("/admin/providers?scope=archived");
+      setArchivedProviders(archivedResponse.providers || []);
+      setFeedback({
+        type: "success",
+        message: "Le prestataire a été restauré.",
+      });
+    } catch (error) {
+      setFeedback({ type: "error", message: error.message });
+    }
+  };
+
+  const updateScope = (nextScope) => {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+
+    if (nextScope === "archived") {
+      nextSearchParams.set("scope", "archived");
+    } else {
+      nextSearchParams.delete("scope");
+    }
+
+    router.replace(
+      nextSearchParams.toString()
+        ? `/prestataires?${nextSearchParams.toString()}`
+        : "/prestataires"
+    );
+  };
+
+  const rows = scope === "archived" ? archivedProviders : providers;
 
   return (
     <AppShell>
@@ -181,39 +266,69 @@ function ProvidersPageContent() {
             icon="users"
             label="Prestataires"
             value={metrics?.totalProviders || 0}
-            helper="Comptes prestataires actuellement suivis."
+            helper="Comptes prestataires suivis, actifs et archivés inclus."
             tone="info"
           />
           <MetricCard
             icon="shield"
             label="Actifs"
             value={metrics?.activeProvidersCurrently || 0}
-            helper="Prestataires deja actifs sur la plateforme."
+            helper="Prestataires déjà actifs sur la plateforme."
             tone="success"
           />
           <MetricCard
             icon="mail"
             label="Invitations en attente"
             value={metrics?.invitedProviders || 0}
-            helper="Comptes invites n'ayant pas encore active leur acces."
+            helper="Comptes invités n'ayant pas encore activé leur accès."
             tone="warning"
           />
           <MetricCard
-            icon="bill"
-            label="Abonnements actifs"
-            value={metrics?.activeSubscriptions || 0}
-            helper="Prestataires avec abonnement Lokify en cours."
-            tone="info"
+            icon="catalog"
+            label="Archives"
+            value={metrics?.archivedProviders || 0}
+            helper="Prestataires sortis des listes actives mais toujours conservés."
+            tone="warning"
           />
         </section>
 
         <Panel
-          title="Prestataires"
-          description="Vue globale des comptes, de leur statut d'activation et de leur abonnement Lokify."
+          title={scope === "archived" ? "Archives / Corbeille prestataires" : "Prestataires"}
+          description={
+            scope === "archived"
+              ? "Consultez les dossiers archivés et restaurez-les sans perte de données."
+              : "Vue globale des comptes actifs, de leur statut d'activation et de leur abonnement Lokify."
+          }
+          actions={
+            <div className="toolbar-group">
+              <button
+                type="button"
+                className={`button ${scope === "active" ? "primary" : "ghost"}`}
+                onClick={() => updateScope("active")}
+              >
+                Actifs
+              </button>
+              <button
+                type="button"
+                className={`button ${scope === "archived" ? "primary" : "ghost"}`}
+                onClick={() => updateScope("archived")}
+              >
+                Archives / Corbeille
+              </button>
+            </div>
+          }
         >
           <DataTable
-            rows={providers}
-            emptyMessage={loading ? "Chargement..." : "Aucun prestataire."}
+            rows={rows}
+            emptyMessage={
+              scope === "archived"
+                ? archivedLoading
+                  ? "Chargement des archives..."
+                  : "Aucun prestataire archivé."
+                : loading
+                  ? "Chargement..."
+                  : "Aucun prestataire."
+            }
             columns={[
               {
                 key: "identity",
@@ -222,7 +337,7 @@ function ProvidersPageContent() {
                   <div className="table-title">
                     <strong>{row.company_name || row.full_name}</strong>
                     <small>{row.email}</small>
-                    <small>{row.phone || "Telephone non renseigne"}</small>
+                    <small>{row.phone || "Téléphone non renseigné"}</small>
                   </div>
                 ),
               },
@@ -230,7 +345,9 @@ function ProvidersPageContent() {
                 key: "provider_status",
                 label: "Compte",
                 render: (row) => {
-                  const providerStatusMeta = getProviderStatusMeta(row.provider_status);
+                  const providerStatusMeta = getProviderStatusMeta(
+                    row.archive?.isArchived ? "archived" : row.provider_status
+                  );
 
                   return (
                     <div className="table-title">
@@ -241,8 +358,8 @@ function ProvidersPageContent() {
                         {row.security?.lastInvitationSentAt
                           ? `Dernier lien ${formatAdminDateTime(row.security.lastInvitationSentAt)}`
                           : row.provider_status === "invited"
-                            ? "Invitation non envoyee"
-                            : "Aucun envoi recent"}
+                            ? "Invitation non envoyée"
+                            : "Aucun envoi récent"}
                       </small>
                     </div>
                   );
@@ -271,11 +388,11 @@ function ProvidersPageContent() {
               },
               {
                 key: "metrics",
-                label: "Donnees",
+                label: "Données",
                 render: (row) => (
                   <div className="table-title">
                     <strong>{row.metrics?.totalClients || 0} clients</strong>
-                    <small>{row.metrics?.totalReservations || 0} reservations</small>
+                    <small>{row.metrics?.totalReservations || 0} réservations</small>
                   </div>
                 ),
               },
@@ -284,12 +401,21 @@ function ProvidersPageContent() {
                 label: "Actions",
                 render: (row) => (
                   <div className="row-actions table-actions-compact">
-                    <Link href={`/prestataires/${row.id}`} className="button ghost">
+                    <Link
+                      href={`/prestataires/${row.id}${scope === "archived" ? "?scope=archived" : ""}`}
+                      className="button ghost"
+                    >
                       Fiche
                     </Link>
-                    <button type="button" className="button ghost" onClick={() => handleDelete(row.id)}>
-                      Supprimer
-                    </button>
+                    {scope === "archived" ? (
+                      <button type="button" className="button ghost" onClick={() => handleRestore(row.id)}>
+                        Restaurer
+                      </button>
+                    ) : (
+                      <button type="button" className="button ghost" onClick={() => handleDelete(row.id)}>
+                        Archiver
+                      </button>
+                    )}
                   </div>
                 ),
               },
@@ -300,13 +426,13 @@ function ProvidersPageContent() {
         <ModalShell
           open={isCreateModalOpen}
           onClose={closeCreateModal}
-          title="Creer un prestataire"
-          description="Creation d'un compte invite sans mot de passe initial. Le prestataire definira ensuite son mot de passe via un lien securise."
+          title="Créer un prestataire"
+          description="Création d'un compte invité sans mot de passe initial. Le prestataire définira ensuite son mot de passe via un lien sécurisé."
           size="xl"
         >
           <form className="form-grid two-columns" onSubmit={handleCreateProvider}>
             <div className="field">
-              <label htmlFor="provider-first-name">Prenom</label>
+              <label htmlFor="provider-first-name">Prénom</label>
               <input
                 id="provider-first-name"
                 value={createForm.first_name}
@@ -326,7 +452,7 @@ function ProvidersPageContent() {
             </div>
 
             <div className="field field-span-2">
-              <label htmlFor="provider-company-name">Nom de la societe</label>
+              <label htmlFor="provider-company-name">Nom de la société</label>
               <input
                 id="provider-company-name"
                 value={createForm.company_name}
@@ -337,7 +463,7 @@ function ProvidersPageContent() {
             </div>
 
             <div className="field field-span-2">
-              <label htmlFor="provider-siret">Numero de SIRET</label>
+              <label htmlFor="provider-siret">Numéro de SIRET</label>
               <input
                 id="provider-siret"
                 value={createForm.siret}
@@ -352,7 +478,7 @@ function ProvidersPageContent() {
                 </p>
               ) : null}
               <p className="field-helper">
-                La verification demarre automatiquement a 14 chiffres et complete la fiche si
+                La vérification démarre automatiquement à 14 chiffres et complète la fiche si
                 l&apos;etablissement est reconnu.
               </p>
             </div>
@@ -430,7 +556,7 @@ function ProvidersPageContent() {
             </div>
 
             <div className="field field-span-2">
-              <label htmlFor="provider-phone">Telephone</label>
+              <label htmlFor="provider-phone">Téléphone</label>
               <input
                 id="provider-phone"
                 value={createForm.phone}
@@ -440,16 +566,16 @@ function ProvidersPageContent() {
             </div>
 
             <article className="detail-card field-span-2">
-              <strong>Activation securisee</strong>
+              <strong>Activation sécurisée</strong>
               <span className="muted-text">
-                Aucun mot de passe n&apos;est demande a cette etape. Le compte sera cree en statut
-                invite, puis active par email depuis la fiche prestataire.
+                Aucun mot de passe n&apos;est demandé à cette étape. Le compte sera créé en statut
+                invité, puis activé par e-mail depuis la fiche prestataire.
               </span>
             </article>
 
             <div className="row-actions field-span-2">
               <button type="submit" className="button primary" disabled={saving}>
-                {saving ? "Creation..." : "Creer le prestataire"}
+                {saving ? "Création..." : "Créer le prestataire"}
               </button>
               <button type="button" className="button ghost" onClick={closeCreateModal}>
                 Annuler

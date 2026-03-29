@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 
 import AppShell from "../../components/app-shell";
 import MetricCard from "../../components/metric-card";
-import ModalShell from "../../components/modal-shell";
 import Panel from "../../components/panel";
 import SearchInput from "../../components/search-input";
 import StatusPill from "../../components/status-pill";
@@ -18,21 +17,12 @@ import {
   getSubscriptionStatusMeta,
 } from "../../lib/provider-admin";
 
-const createQuickEditForm = () => ({
-  full_name: "",
-  email: "",
-  phone: "",
-});
-
 export default function SubscriptionsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [overview, setOverview] = useState(null);
   const [feedback, setFeedback] = useState(null);
-  const [quickEditProvider, setQuickEditProvider] = useState(null);
-  const [quickEditForm, setQuickEditForm] = useState(createQuickEditForm);
-  const [quickEditSaving, setQuickEditSaving] = useState(false);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   const loadOverview = async () => {
@@ -76,45 +66,6 @@ export default function SubscriptionsPage() {
       .includes(deferredSearch);
   });
 
-  const openQuickEdit = (provider) => {
-    setQuickEditProvider(provider);
-    setQuickEditForm({
-      full_name: provider.full_name || "",
-      email: provider.email || "",
-      phone: provider.phone || "",
-    });
-    setFeedback(null);
-  };
-
-  const closeQuickEdit = () => {
-    setQuickEditProvider(null);
-    setQuickEditForm(createQuickEditForm());
-  };
-
-  const handleQuickEditSubmit = async (event) => {
-    event.preventDefault();
-    setQuickEditSaving(true);
-    setFeedback(null);
-
-    try {
-      await apiRequest(`/admin/providers/${quickEditProvider.id}`, {
-        method: "PUT",
-        body: quickEditForm,
-      });
-
-      await loadOverview();
-      closeQuickEdit();
-      setFeedback({
-        type: "success",
-        message: "Les coordonnees principales du prestataire ont ete mises a jour.",
-      });
-    } catch (error) {
-      setFeedback({ type: "error", message: error.message });
-    } finally {
-      setQuickEditSaving(false);
-    }
-  };
-
   return (
     <AppShell>
       <div className="page-stack">
@@ -123,8 +74,8 @@ export default function SubscriptionsPage() {
             <p className="eyebrow">Super admin</p>
             <h3>Gestion des abonnements prestataires.</h3>
             <p>
-              Cette page reste dediee au suivi des formules Lokify, des paiements et des
-              renouvellements, sans melanger le pilotage global du SaaS.
+              Cette page reste dédiée au suivi des formules Lokify, des paiements et des
+              renouvellements, sans mélanger le pilotage global du SaaS.
             </p>
           </div>
         </div>
@@ -140,40 +91,40 @@ export default function SubscriptionsPage() {
             icon="shield"
             label="Abonnements actifs"
             value={overview?.metrics?.activeSubscriptions || 0}
-            helper="Prestataires actuellement en periode active Lokify."
+            helper="Prestataires actuellement en période active Lokify."
             tone="info"
           />
           <MetricCard
             icon="mail"
             label="Alertes paiement"
             value={overview?.metrics?.paymentAlerts || 0}
-            helper="Prestataires en retard, impayes ou expires."
+            helper="Prestataires en retard, impayés ou expirés."
             tone="warning"
           />
           <MetricCard
             icon="users"
-            label="Prestataires a jour"
+            label="Prestataires à jour"
             value={overview?.metrics?.providersUpToDate || 0}
             helper="Dossiers avec paiement sain ou en essai."
             tone="success"
           />
           <MetricCard
             icon="settings"
-            label="Stripe configure"
+            label="Stripe configuré"
             value={overview?.metrics?.providerStripeConfigured || 0}
-            helper="Comptes prestataires avec parametres Stripe disponibles."
+            helper="Comptes prestataires avec paramètres Stripe disponibles."
             tone="info"
           />
         </section>
 
         <Panel
           title="Abonnements prestataires"
-          description="Vue d'ensemble des statuts, des paiements et des renouvellements avec edition rapide et acces a la fiche prestataire."
+          description="Vue d’ensemble des statuts, des paiements et des renouvellements, avec accès direct à la fiche complète du prestataire."
           actions={
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Rechercher un prestataire, un email, un SIRET ou un statut"
+              placeholder="Rechercher un prestataire, un e-mail, un SIRET ou un statut"
             />
           }
         >
@@ -225,7 +176,7 @@ export default function SubscriptionsPage() {
                           <div className="table-title">
                             <strong>{provider.full_name}</strong>
                             <small>{provider.email}</small>
-                            <small>{provider.phone || "Telephone non renseigne"}</small>
+                            <small>{provider.phone || "Téléphone non renseigné"}</small>
                           </div>
                         </td>
                         <td>
@@ -233,8 +184,8 @@ export default function SubscriptionsPage() {
                             <strong>{provider.subscription?.lokifyPlanName || "Aucune"}</strong>
                             <small>
                               {provider.subscription?.lokifyPlanPrice
-                                ? `${provider.subscription.lokifyPlanPrice} EUR / ${provider.subscription.lokifyPlanInterval === "year" ? "an" : "mois"}`
-                                : "Tarif non renseigne"}
+                                ? `${provider.subscription.lokifyPlanPrice} € / ${provider.subscription.lokifyPlanInterval === "year" ? "an" : "mois"}`
+                                : "Tarif non renseigné"}
                             </small>
                           </div>
                         </td>
@@ -244,7 +195,7 @@ export default function SubscriptionsPage() {
                               {subscriptionMeta.label}
                             </StatusPill>
                             <small>
-                              Debut {formatAdminDate(provider.subscription?.lokifySubscriptionStartAt)}
+                              Début {formatAdminDate(provider.subscription?.lokifySubscriptionStartAt)}
                             </small>
                             <small>
                               Fin {formatAdminDate(provider.subscription?.lokifySubscriptionEndAt)}
@@ -259,7 +210,7 @@ export default function SubscriptionsPage() {
                               {formatAdminDate(provider.payments?.customerLastPaymentAt)}
                             </small>
                             <small>
-                              Prochaine echeance{" "}
+                              Prochaine échéance{" "}
                               {formatAdminDate(provider.payments?.customerNextPaymentDueAt)}
                             </small>
                           </div>
@@ -269,7 +220,7 @@ export default function SubscriptionsPage() {
                             <StatusPill tone={renewalMeta.tone}>{renewalMeta.label}</StatusPill>
                             <small>
                               {provider.subscription?.cancelAtPeriodEnd
-                                ? "Arret a la fin de la periode en cours"
+                                ? "Arrêt à la fin de la période en cours"
                                 : "Reconduction automatique active"}
                             </small>
                           </div>
@@ -289,7 +240,9 @@ export default function SubscriptionsPage() {
                               className="button ghost"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                openQuickEdit(provider);
+                                router.push(
+                                  `/prestataires/${provider.id}?from=subscriptions&edit=1`
+                                );
                               }}
                             >
                               Modifier
@@ -302,7 +255,7 @@ export default function SubscriptionsPage() {
                                 router.push(`/prestataires/${provider.id}?from=subscriptions`);
                               }}
                             >
-                              Voir
+                              Fiche
                             </button>
                           </div>
                         </td>
@@ -314,7 +267,7 @@ export default function SubscriptionsPage() {
                     <td colSpan={7} className="empty-cell">
                       {loading
                         ? "Chargement des abonnements..."
-                        : "Aucun abonnement prestataire a afficher."}
+                        : "Aucun abonnement prestataire à afficher."}
                     </td>
                   </tr>
                 )}
@@ -322,76 +275,6 @@ export default function SubscriptionsPage() {
             </table>
           </div>
         </Panel>
-
-        <ModalShell
-          open={Boolean(quickEditProvider)}
-          title={
-            quickEditProvider
-              ? `Edition rapide - ${quickEditProvider.full_name}`
-              : "Edition rapide"
-          }
-          description="Mise a jour rapide des coordonnees principales sans quitter la liste."
-          onClose={closeQuickEdit}
-        >
-          <form className="form-grid" onSubmit={handleQuickEditSubmit}>
-            <div className="field">
-              <label htmlFor="quick-provider-name">Nom / raison sociale</label>
-              <input
-                id="quick-provider-name"
-                value={quickEditForm.full_name}
-                onChange={(event) =>
-                  setQuickEditForm((current) => ({
-                    ...current,
-                    full_name: event.target.value,
-                  }))
-                }
-                placeholder="Nom du prestataire"
-                required
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="quick-provider-email">Email</label>
-              <input
-                id="quick-provider-email"
-                type="email"
-                value={quickEditForm.email}
-                onChange={(event) =>
-                  setQuickEditForm((current) => ({
-                    ...current,
-                    email: event.target.value,
-                  }))
-                }
-                placeholder="contact@prestataire.fr"
-                required
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="quick-provider-phone">Telephone</label>
-              <input
-                id="quick-provider-phone"
-                value={quickEditForm.phone}
-                onChange={(event) =>
-                  setQuickEditForm((current) => ({
-                    ...current,
-                    phone: event.target.value,
-                  }))
-                }
-                placeholder="06 00 00 00 00"
-              />
-            </div>
-
-            <div className="row-actions">
-              <button type="submit" className="button primary" disabled={quickEditSaving}>
-                {quickEditSaving ? "Enregistrement..." : "Enregistrer"}
-              </button>
-              <button type="button" className="button ghost" onClick={closeQuickEdit}>
-                Annuler
-              </button>
-            </div>
-          </form>
-        </ModalShell>
       </div>
     </AppShell>
   );

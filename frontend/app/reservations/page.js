@@ -21,8 +21,8 @@ const pageSize = 7;
 const reservationGroups = [
   {
     items: [
-      { id: "reservations", label: "Reservations", helper: "Suivi, filtres et actions quotidiennes." },
-      { id: "documents", label: "Documents", helper: "Devis, contrats, telechargements et exports." },
+      { id: "reservations", label: "Réservations", helper: "Suivi, filtres et actions quotidiennes." },
+      { id: "documents", label: "Documents", helper: "Devis, contrats, téléchargements et exports." },
       { id: "cash", label: "Journal de caisse", helper: "Encaissements, non soldes et garanties." },
     ],
   },
@@ -218,11 +218,11 @@ const buildDocumentPreviewMarkup = (document) => `
       <p>${escapeHtml(document.type_label || document.type)}</p>
       <div class="meta">
         <div class="meta-card">
-          <strong>Reference</strong>
+          <strong>Référence</strong>
           <span>${escapeHtml(document.reference)}</span>
         </div>
         <div class="meta-card">
-          <strong>Reservation</strong>
+          <strong>Réservation</strong>
           <span>${escapeHtml(document.reservation?.reference || "")}</span>
         </div>
         <div class="meta-card">
@@ -469,18 +469,18 @@ export default function ReservationsPage() {
       const createdClient = response?.client;
 
       if (!createdClient?.id) {
-        throw new Error("Impossible de creer le client.");
+        throw new Error("Impossible de créer le client.");
       }
 
       setForm((current) => ({
         ...current,
         client_id: createdClient.id,
       }));
-      setQuickClientFeedback("Client cree avec succes.");
+      setQuickClientFeedback("Client créé avec succès.");
       setQuickClientForm(emptyQuickClientForm);
       setIsClientCreatorOpen(false);
     } catch (creationError) {
-      setQuickClientError(creationError.message || "Impossible de creer le client.");
+      setQuickClientError(creationError.message || "Impossible de créer le client.");
     } finally {
       setIsCreatingClient(false);
     }
@@ -539,12 +539,12 @@ export default function ReservationsPage() {
       .filter((line) => line.item_id);
 
     if (!form.client_id) {
-      setError("Selectionnez un client existant ou creez un nouveau client.");
+      setError("Sélectionnez un client existant ou créez un nouveau client.");
       return;
     }
 
     if (!nextLines.length) {
-      setError("Ajoutez au moins un produit pour enregistrer la reservation.");
+      setError("Ajoutez au moins un produit pour enregistrer la réservation.");
       return;
     }
 
@@ -564,11 +564,11 @@ export default function ReservationsPage() {
       setFeedback(
         editingId
           ? composerIntent === "quote"
-            ? "Devis mis a jour."
-            : "Reservation mise a jour."
+            ? "Devis mis à jour."
+            : "Réservation mise à jour."
           : composerIntent === "quote"
-            ? "Devis prepare."
-            : "Reservation ajoutee."
+            ? "Devis préparé."
+            : "Réservation ajoutée."
       );
       resetForm();
     } catch (submissionError) {
@@ -579,7 +579,7 @@ export default function ReservationsPage() {
   };
 
   const handleDelete = async (reservationId) => {
-    if (!window.confirm("Supprimer cette reservation ?")) {
+    if (!window.confirm("Supprimer cette réservation ?")) {
       return;
     }
 
@@ -588,7 +588,7 @@ export default function ReservationsPage() {
 
     try {
       await workspace.deleteReservation(reservationId);
-      setFeedback("Reservation supprimee.");
+      setFeedback("Réservation supprimée.");
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -793,7 +793,7 @@ export default function ReservationsPage() {
     downloadCsv(
       "lokify-documents.csv",
       [
-        { label: "Reference", value: (row) => row.reference },
+        { label: "Référence", value: (row) => row.reference },
         { label: "Client", value: (row) => row.client },
         { label: "Devis", value: (row) => row.quoteStatus },
         { label: "Contrat", value: (row) => row.contractStatus },
@@ -823,9 +823,9 @@ export default function ReservationsPage() {
       <div className="page-stack reservations-page">
         <div className="page-header reservations-header">
           <div className="reservations-header-copy">
-            <p className="eyebrow">Reservations</p>
+            <p className="eyebrow">Réservations</p>
             <h3>Un module plus clair pour vos dossiers, documents et encaissements.</h3>
-            <p>Retrouvez les dossiers, les documents et les encaissements dans un espace unique et facile a suivre.</p>
+            <p>Retrouvez les dossiers, les documents et les encaissements dans un espace unique et facile à suivre.</p>
           </div>
           <div className="page-header-actions reservations-header-actions">
             <button type="button" className="button ghost" onClick={exportReservations}>
@@ -839,7 +839,7 @@ export default function ReservationsPage() {
               Scanner
             </button>
             <button type="button" className="button primary" onClick={openReservationComposer}>
-              Nouvelle reservation
+              Nouvelle réservation
             </button>
           </div>
         </div>
@@ -852,9 +852,9 @@ export default function ReservationsPage() {
         {scannerMessage ? <div className="inline-alert">{scannerMessage}</div> : null}
 
         <section className="metric-grid reservations-metrics">
-          <MetricCard icon="document" label="Demandes" value={workspace.overview.stats.draft_reservations} helper="Brouillons a transformer" tone="warning" />
-          <MetricCard icon="calendar" label="Reservations confirmees" value={workspace.reservations.filter((reservation) => reservation.status === "confirmed").length} helper="Locations pretes a partir" tone="success" />
-          <MetricCard icon="euro" label="Montant suivi" value={formatCurrency(workspace.reservations.reduce((sum, reservation) => sum + reservation.total_amount, 0))} helper="TTC reserve sur la base actuelle" tone="info" />
+          <MetricCard icon="document" label="Demandes" value={workspace.overview.stats.draft_reservations} helper="Brouillons à transformer" tone="warning" />
+          <MetricCard icon="calendar" label="Réservations confirmées" value={workspace.reservations.filter((reservation) => reservation.status === "confirmed").length} helper="Locations prêtes à partir" tone="success" />
+          <MetricCard icon="euro" label="Montant suivi" value={formatCurrency(workspace.reservations.reduce((sum, reservation) => sum + reservation.total_amount, 0))} helper="TTC réservé sur la base actuelle" tone="info" />
         </section>
 
         <section className="subnav-layout reservations-layout">
@@ -864,16 +864,16 @@ export default function ReservationsPage() {
             {section === "reservations" ? (
               <Panel
                 className="reservations-panel"
-                title="Liste des reservations"
+                title="Liste des réservations"
                 description="Recherche client ou produit, filtres utiles et tableau plus respirant."
                 actions={
                   <div className="toolbar-group reservations-filter-actions">
                     <select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}>
-                      <option value="all">Toute periode</option>
+                      <option value="all">Toute période</option>
                       <option value="week">7 prochains jours</option>
                       <option value="month">30 prochains jours</option>
-                      <option value="future">A venir</option>
-                      <option value="past">Passees</option>
+                      <option value="future">À venir</option>
+                      <option value="past">Passées</option>
                     </select>
                     <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
                       <option value="all">Tous les statuts</option>
@@ -889,13 +889,13 @@ export default function ReservationsPage() {
                 <div className="stack">
                   <div className="toolbar-spread reservations-toolbar">
                     <SearchInput className="reservations-search" value={search} onChange={setSearch} placeholder="Rechercher un client ou un produit" />
-                    <StatusPill tone="info">{filteredReservations.length} reservation(s)</StatusPill>
+                    <StatusPill tone="info">{filteredReservations.length} réservation(s)</StatusPill>
                   </div>
 
                   <DataTable
                     className="reservations-data-table"
                     rows={paginatedReservations}
-                    emptyMessage="Aucune reservation sur cette vue."
+                    emptyMessage="Aucune réservation sur cette vue."
                     columns={[
                       {
                         key: "status",
@@ -916,14 +916,14 @@ export default function ReservationsPage() {
                           <div className="table-title">
                             <strong>{row.client_name}</strong>
                             <small>
-                              {row.item_summary || row.item_name} · {row.total_quantity} unite(s)
+                              {row.item_summary || row.item_name} · {row.total_quantity} unité(s)
                             </small>
                           </div>
                         ),
                       },
                       {
                         key: "period",
-                        label: "Periode",
+                        label: "Période",
                         render: (row) => (
                           <div className="table-title">
                             <strong>{formatDateTime(row.start_date)}</strong>
@@ -938,7 +938,7 @@ export default function ReservationsPage() {
                       },
                       {
                         key: "deposit",
-                        label: "Depot de garantie",
+                        label: "Dépôt de garantie",
                         render: (row) => formatCurrency(row.deposit),
                       },
                       {
@@ -953,7 +953,7 @@ export default function ReservationsPage() {
                                 onClick={() => void handleDeparture(row.id)}
                                 disabled={workspace.mutating}
                               >
-                                Depart
+                                Départ
                               </button>
                             ) : null}
                             {row.departure_tracking?.status === "completed" &&
@@ -989,14 +989,14 @@ export default function ReservationsPage() {
               <Panel
                 className="reservations-panel"
                 title="Documents"
-                description="Recherche, filtres par periode et export propre pour les devis et contrats."
+                description="Recherche, filtres par période et export propre pour les devis et contrats."
                 actions={
                   <div className="toolbar-group">
                     <button type="button" className="button ghost" onClick={exportDocuments}>
                       Exporter
                     </button>
                     <button type="button" className="button secondary" onClick={openQuoteComposer}>
-                      Preparer un devis
+                      Préparer un devis
                     </button>
                   </div>
                 }
@@ -1004,9 +1004,9 @@ export default function ReservationsPage() {
                 <DataTable
                   className="reservations-data-table"
                   rows={workspace.documents}
-                  emptyMessage="Aucun document a suivre."
+                  emptyMessage="Aucun document à suivre."
                   columns={[
-                    { key: "reference", label: "Reference" },
+                    { key: "reference", label: "Référence" },
                     { key: "client", label: "Client" },
                     {
                       key: "quoteStatus",
@@ -1020,7 +1020,7 @@ export default function ReservationsPage() {
                     },
                     {
                       key: "inventoryStatus",
-                      label: "Etat des lieux",
+                      label: "État des lieux",
                       render: (row) => <StatusPill tone={row.inventoryTone || "neutral"}>{row.inventoryStatus}</StatusPill>,
                     },
                     {
@@ -1056,15 +1056,15 @@ export default function ReservationsPage() {
                 <div className="kpi-band reservations-cash-band">
                   <div className="kpi-tile">
                     <strong>{workspace.cashSummary.pending_revenue_count}</strong>
-                    <span>encaissements a suivre</span>
+                    <span>encaissements à suivre</span>
                   </div>
                   <div className="kpi-tile">
                     <strong>{workspace.cashSummary.blocked_deposits_count}</strong>
-                    <span>depots actuellement bloques</span>
+                    <span>dépôts actuellement bloqués</span>
                   </div>
                   <div className="kpi-tile">
                     <strong>{workspace.cashSummary.deposits_to_release_count}</strong>
-                    <span>garanties a restituer</span>
+                    <span>garanties à restituer</span>
                   </div>
                   <div className="kpi-tile">
                     <strong>{formatCurrency(workspace.cashSummary.tracked_amount)}</strong>
@@ -1072,14 +1072,14 @@ export default function ReservationsPage() {
                   </div>
                 </div>
 
-                <Panel className="reservations-panel" title="Journal de caisse" description="Un suivi plus propre des montants TTC, non soldes et depots.">
+                <Panel className="reservations-panel" title="Journal de caisse" description="Un suivi plus propre des montants TTC, non soldés et dépôts.">
                   <DataTable
                     className="reservations-data-table"
                     rows={workspace.cashEntries}
-                    emptyMessage="Aucune ecriture de caisse pour le moment."
+                    emptyMessage="Aucune écriture de caisse pour le moment."
                     columns={[
                       { key: "type", label: "Type" },
-                      { key: "label", label: "Reference" },
+                      { key: "label", label: "Référence" },
                       { key: "date", label: "Date", render: (row) => formatDateTime(row.date) },
                       { key: "amount", label: "Montant", render: (row) => formatCurrency(row.amount) },
                       {
@@ -1101,18 +1101,18 @@ export default function ReservationsPage() {
 
         <ModalShell
           open={isComposerOpen}
-          title={editingId ? "Modifier la reservation" : composerIntent === "quote" ? "Preparer un devis" : "Nouvelle reservation"}
+          title={editingId ? "Modifier la réservation" : composerIntent === "quote" ? "Préparer un devis" : "Nouvelle réservation"}
           description={
             composerIntent === "quote"
-              ? "Creez un devis directement depuis votre base clients et votre catalogue, sans quitter la section documents."
-              : "Une creation plus propre sans encombrer l'ecran principal."
+              ? "Créez un devis directement depuis votre base clients et votre catalogue, sans quitter la section documents."
+              : "Une création plus propre sans encombrer l'écran principal."
           }
           onClose={resetForm}
         >
           {workspace.loading ? (
             <div className="empty-state">
-              <strong>Chargement des donnees</strong>
-              <span>Les clients et le catalogue sont en cours de recuperation pour preparer le dossier.</span>
+              <strong>Chargement des données</strong>
+              <span>Les clients et le catalogue sont en cours de récupération pour préparer le dossier.</span>
             </div>
           ) : workspace.products.length ? (
             <form className="form-grid" onSubmit={handleSubmit}>
@@ -1133,17 +1133,17 @@ export default function ReservationsPage() {
                   </button>
                 </div>
                 <select id="reservation-client" value={form.client_id} onChange={(event) => setForm((current) => ({ ...current, client_id: event.target.value }))}>
-                  <option value="">Selectionnez ou creez un client</option>
+                  <option value="">Sélectionnez ou créez un client</option>
                   {workspace.clients.map((client) => (
                     <option key={client.id} value={client.id}>
                       {client.full_name}
                     </option>
                   ))}
                 </select>
-                <p className="field-hint">Choisissez un client existant ou ajoutez-en un sans quitter cette reservation.</p>
+                <p className="field-hint">Choisissez un client existant ou ajoutez-en un sans quitter cette réservation.</p>
                 {!workspace.clients.length ? (
                   <div className="inline-alert reservation-inline-alert">
-                    Aucun client dans la base pour le moment. Creez-en un ici puis poursuivez la reservation.
+                    Aucun client dans la base pour le moment. Créez-en un ici puis poursuivez la réservation.
                   </div>
                 ) : null}
                 {quickClientError ? <p className="feedback error reservation-inline-feedback">{quickClientError}</p> : null}
@@ -1154,19 +1154,19 @@ export default function ReservationsPage() {
                     <div className="reservation-client-creator-head">
                       <div>
                         <strong>Nouveau client</strong>
-                        <p>Creation rapide de la fiche client, avec selection automatique dans la reservation.</p>
+                        <p>Création rapide de la fiche client, avec sélection automatique dans la réservation.</p>
                       </div>
                     </div>
 
                     <div className="form-grid two-columns">
                       <div className="field">
-                        <label htmlFor="quick-client-first-name">Prenom</label>
+                        <label htmlFor="quick-client-first-name">Prénom</label>
                         <input
                           id="quick-client-first-name"
                           value={quickClientForm.first_name}
                           onChange={(event) => setQuickClientForm((current) => ({ ...current, first_name: event.target.value }))}
                           onKeyDown={handleQuickClientKeyDown}
-                          placeholder="Prenom"
+                          placeholder="Prénom"
                         />
                       </div>
                       <div className="field">
@@ -1183,7 +1183,7 @@ export default function ReservationsPage() {
 
                     <div className="form-grid two-columns">
                       <div className="field">
-                        <label htmlFor="quick-client-phone">Telephone</label>
+                        <label htmlFor="quick-client-phone">Téléphone</label>
                         <input
                           id="quick-client-phone"
                           value={quickClientForm.phone}
@@ -1212,7 +1212,7 @@ export default function ReservationsPage() {
                         onClick={() => void handleQuickClientCreate()}
                         disabled={isCreatingClient || isSubmittingReservation}
                       >
-                        {isCreatingClient ? "Creation..." : "Creer et selectionner"}
+                        {isCreatingClient ? "Création..." : "Créer et sélectionner"}
                       </button>
                       <button
                         type="button"
@@ -1236,7 +1236,7 @@ export default function ReservationsPage() {
                 <div className="section-block-header">
                   <div>
                     <h4>Produits du dossier</h4>
-                    <p>Ajoutez une ou plusieurs lignes sans quitter la reservation.</p>
+                    <p>Ajoutez une ou plusieurs lignes sans quitter la réservation.</p>
                   </div>
                 </div>
 
@@ -1253,7 +1253,7 @@ export default function ReservationsPage() {
                             value={line.item_id}
                             onChange={(event) => updateReservationLine(index, "item_id", event.target.value)}
                           >
-                            <option value="">Selectionner un produit</option>
+                            <option value="">Sélectionner un produit</option>
                             {workspace.products.map((product) => (
                               <option key={product.id} value={product.id}>
                                 {product.name} ({product.category})
@@ -1263,7 +1263,7 @@ export default function ReservationsPage() {
                         </div>
 
                         <div className="field">
-                          <label htmlFor={`reservation-quantity-${index}`}>Quantite</label>
+                          <label htmlFor={`reservation-quantity-${index}`}>Quantité</label>
                           <div className="row-actions">
                             <input
                               id={`reservation-quantity-${index}`}
@@ -1283,7 +1283,7 @@ export default function ReservationsPage() {
                           </div>
                           {selectedProduct ? (
                             <p className="field-hint">
-                              {formatCurrency(selectedProduct.price)} / jour · depot {formatCurrency(selectedProduct.deposit)}
+                              {formatCurrency(selectedProduct.price)} / jour · dépôt {formatCurrency(selectedProduct.deposit)}
                             </p>
                           ) : null}
                         </div>
@@ -1299,7 +1299,7 @@ export default function ReservationsPage() {
 
               <div className="form-grid two-columns">
                 <div className="field">
-                  <label htmlFor="reservation-start">Debut</label>
+                  <label htmlFor="reservation-start">Début</label>
                   <input id="reservation-start" type="datetime-local" value={form.start_date} onChange={(event) => setForm((current) => ({ ...current, start_date: event.target.value }))} />
                 </div>
                 <div className="field">
@@ -1318,7 +1318,7 @@ export default function ReservationsPage() {
                     disabled={composerIntent === "quote"}
                   >
                     <option value="manual">Saisie manuelle</option>
-                    <option value="phone">Telephone</option>
+                    <option value="phone">Téléphone</option>
                     <option value="web">Boutique / web</option>
                     <option value="marketplace">Partenaire</option>
                     <option value="quote">Devis</option>
@@ -1331,7 +1331,7 @@ export default function ReservationsPage() {
                     value={form.fulfillment_mode}
                     onChange={(event) => setForm((current) => ({ ...current, fulfillment_mode: event.target.value }))}
                   >
-                    <option value="pickup">Retrait depot</option>
+                    <option value="pickup">Retrait dépôt</option>
                     <option value="delivery">Livraison</option>
                     <option value="onsite">Intervention sur site</option>
                   </select>
@@ -1351,14 +1351,14 @@ export default function ReservationsPage() {
 
               <div className="field">
                 <label htmlFor="reservation-notes">Notes</label>
-                <textarea id="reservation-notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notes operationnelles, consignes client, logistique..." />
+                <textarea id="reservation-notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notes opérationnelles, consignes client, logistique..." />
               </div>
 
               <div className="section-block">
                 <div className="section-block-header">
                   <div>
                     <h4>Caution manuelle</h4>
-                    <p>La caution reste suivie a part, sans etre melangee au montant de location.</p>
+                    <p>La caution reste suivie à part, sans être mélangée au montant de location.</p>
                   </div>
                   <StatusPill
                     tone={reservationDepositStatusMeta[form.deposit.manual_status]?.tone || "neutral"}
@@ -1371,10 +1371,10 @@ export default function ReservationsPage() {
                 <div className="kpi-band">
                   <div className="kpi-tile">
                     <strong>{formatCurrency(estimatedReservationDeposit)}</strong>
-                    <span>caution calculee</span>
+                    <span>caution calculée</span>
                   </div>
                   <div className="kpi-tile">
-                    <strong>{form.deposit.handling_mode === "manual" ? "Manuelle" : "Paiement integre"}</strong>
+                    <strong>{form.deposit.handling_mode === "manual" ? "Manuelle" : "Paiement intégré"}</strong>
                     <span>mode de gestion</span>
                   </div>
                 </div>
@@ -1417,7 +1417,7 @@ export default function ReservationsPage() {
                           },
                         }))
                       }
-                      placeholder="Cheque, especes, TPE, virement..."
+                      placeholder="Chèque, espèces, TPE, virement..."
                       disabled={estimatedReservationDeposit <= 0}
                     />
                   </div>
@@ -1425,7 +1425,7 @@ export default function ReservationsPage() {
 
                 <div className="form-grid two-columns">
                   <div className="field">
-                    <label htmlFor="reservation-deposit-reference">Reference caution</label>
+                    <label htmlFor="reservation-deposit-reference">Référence caution</label>
                     <input
                       id="reservation-deposit-reference"
                       value={form.deposit.manual_reference}
@@ -1438,7 +1438,7 @@ export default function ReservationsPage() {
                           },
                         }))
                       }
-                      placeholder="No cheque, preuve TPE, reference ou remarque..."
+                      placeholder="No chèque, preuve TPE, référence ou remarque..."
                       disabled={estimatedReservationDeposit <= 0}
                     />
                   </div>
@@ -1470,27 +1470,27 @@ export default function ReservationsPage() {
                 </div>
                 <div className="kpi-tile">
                   <strong>{reservationDurationInDays}</strong>
-                  <span>jour(s) factures</span>
+                  <span>jour(s) facturés</span>
                 </div>
                 <div className="kpi-tile">
                   <strong>{formatCurrency(estimatedReservationAmount)}</strong>
-                  <span>montant estime</span>
+                  <span>montant estimé</span>
                 </div>
                 <div className="kpi-tile">
                   <strong>{formatCurrency(estimatedReservationDeposit)}</strong>
-                  <span>depot visible</span>
+                  <span>dépôt visible</span>
                 </div>
               </div>
 
               {!form.client_id ? (
                 <div className="inline-alert reservation-inline-alert">
-                  Selectionnez un client existant ou creez-en un nouveau pour finaliser la reservation.
+                  Sélectionnez un client existant ou créez-en un nouveau pour finaliser la réservation.
                 </div>
               ) : null}
 
               <div className="row-actions">
                 <button type="submit" className="button primary" disabled={!canSubmitReservation}>
-                  {isSubmittingReservation ? "Enregistrement..." : editingId ? "Sauvegarder" : composerIntent === "quote" ? "Creer le devis" : "Creer la reservation"}
+                  {isSubmittingReservation ? "Enregistrement..." : editingId ? "Sauvegarder" : composerIntent === "quote" ? "Créer le devis" : "Créer la réservation"}
                 </button>
                 <button type="button" className="button ghost" onClick={resetForm}>
                   Annuler
@@ -1500,7 +1500,7 @@ export default function ReservationsPage() {
           ) : (
             <div className="empty-state">
               <strong>Catalogue insuffisant</strong>
-              <span>Ajoutez au moins un produit pour creer une reservation. Les clients peuvent maintenant etre crees directement ici.</span>
+              <span>Ajoutez au moins un produit pour créer une réservation. Les clients peuvent maintenant être créés directement ici.</span>
             </div>
           )}
         </ModalShell>
@@ -1508,11 +1508,11 @@ export default function ReservationsPage() {
         <ModalShell
           open={Boolean(activeDocument) || documentLoading}
           title={
-            activeDocument ? `${activeDocument.type_label} ${activeDocument.reference}` : "Document reservation"
+            activeDocument ? `${activeDocument.type_label} ${activeDocument.reference}` : "Document réservation"
           }
           description={
             activeDocument
-              ? `Document lie a ${activeDocument.reservation?.reference} pour ${activeDocument.reservation?.client_name}.`
+              ? `Document lié à ${activeDocument.reservation?.reference} pour ${activeDocument.reservation?.client_name}.`
               : ""
           }
           size="xl"
@@ -1538,7 +1538,7 @@ export default function ReservationsPage() {
           {documentLoading ? (
             <div className="empty-state">
               <strong>Chargement du document</strong>
-              <span>Le contenu du document est en cours de recuperation.</span>
+              <span>Le contenu du document est en cours de récupération.</span>
             </div>
           ) : activeDocument ? (
             <div className="stack document-editor-stack">
@@ -1601,7 +1601,7 @@ export default function ReservationsPage() {
 
               <div className="form-grid two-columns">
                 <div className="field">
-                  <label htmlFor="document-reference">Reference</label>
+                  <label htmlFor="document-reference">Référence</label>
                   <input id="document-reference" value={activeDocument.reference} readOnly />
                 </div>
                 <div className="field">

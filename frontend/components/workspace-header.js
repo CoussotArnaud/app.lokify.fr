@@ -30,7 +30,7 @@ export default function WorkspaceHeader() {
         <Link href={getWorkspaceHomePath(user)} className="brand-lockup">
           <BrandLogo className="brand-logo-header" />
           <span className="brand-lockup-copy">
-            <small>Location & reservations</small>
+            <small>Location & réservations</small>
           </span>
         </Link>
 
@@ -75,7 +75,7 @@ export default function WorkspaceHeader() {
               ))}
               <button type="button" className="user-popover-link" onClick={logout}>
                 <Icon name="logout" size={14} />
-                <span>Se deconnecter</span>
+                <span>Se déconnecter</span>
               </button>
             </div>
           </details>
