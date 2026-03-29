@@ -11,7 +11,10 @@ import {
 } from "./password-reset.service.js";
 import HttpError from "../utils/http-error.js";
 import { isValidSiret, normalizeSiret } from "../utils/siret.js";
-import { getVerifiedCompanyIdentity } from "./insee-sirene.service.js";
+import {
+  getVerifiedCompanyIdentity,
+  previewSiretVerification,
+} from "./insee-sirene.service.js";
 
 const normalizeText = (value) => String(value || "").trim();
 const coalesceText = (...values) => values.map(normalizeText).find(Boolean) || null;
@@ -319,3 +322,5 @@ export const requestPasswordReset = async ({ email }) => {
 
 export const resetPassword = async ({ token, password }) =>
   resetPasswordWithToken({ token, password });
+
+export { previewSiretVerification };

@@ -2,6 +2,7 @@ import asyncHandler from "../utils/async-handler.js";
 import {
   getCurrentUser,
   loginUser,
+  previewSiretVerification,
   registerUser,
   requestPasswordReset,
   resetPassword,
@@ -29,5 +30,10 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 
 export const postResetPassword = asyncHandler(async (req, res) => {
   const response = await resetPassword(req.body);
+  res.json(response);
+});
+
+export const postVerifySiret = asyncHandler(async (req, res) => {
+  const response = await previewSiretVerification(req.body?.siret);
   res.json(response);
 });

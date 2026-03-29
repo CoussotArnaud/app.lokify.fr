@@ -210,3 +210,13 @@ test("super admin overview exposes business revenue indicators", async () => {
   assert.equal(typeof overview.metrics.activeProvidersCurrently, "number");
   assert.equal(typeof overview.metrics.invitedProviders, "number");
 });
+
+test("provider detail exposes read-only business metrics", async () => {
+  const providerId = await getDemoProviderId();
+  const detailedProvider = await getProviderForAdmin(providerId);
+
+  assert.equal(detailedProvider.business.monthlyRevenue, 290);
+  assert.equal(detailedProvider.business.totalRevenue, 290);
+  assert.equal(detailedProvider.business.totalReservations, 2);
+  assert.equal(detailedProvider.business.confirmedReservations, 1);
+});

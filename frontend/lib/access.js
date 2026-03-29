@@ -1,6 +1,7 @@
 export const billingRoute = "/abonnement";
+export const supportRoute = "/support";
 
-const providerAlwaysAllowedRoutes = [billingRoute, "/parametres"];
+const providerAlwaysAllowedRoutes = [billingRoute, supportRoute, "/parametres"];
 const providerOperationalRoutes = [
   "/dashboard",
   "/reservations",
@@ -12,7 +13,7 @@ const providerOperationalRoutes = [
   "/factures",
   "/boutique-en-ligne",
 ];
-const superAdminRoutes = ["/prestataires", "/abonnements", "/parametres"];
+const superAdminRoutes = ["/dashboard", "/prestataires", "/abonnements", supportRoute, "/parametres"];
 
 const isSameOrNestedPath = (pathname, href) =>
   pathname === href || pathname.startsWith(`${href}/`);
@@ -50,4 +51,4 @@ export const getAccessRestriction = (pathname, user) => {
 export const canAccessPath = (pathname, user) => getAccessRestriction(pathname, user) === null;
 
 export const getWorkspaceHomePath = (user) =>
-  isSuperAdmin(user) ? "/prestataires" : canAccessOperationalModules(user) ? "/dashboard" : billingRoute;
+  isSuperAdmin(user) ? "/dashboard" : canAccessOperationalModules(user) ? "/dashboard" : billingRoute;

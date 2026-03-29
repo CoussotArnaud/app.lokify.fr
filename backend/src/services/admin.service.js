@@ -170,6 +170,58 @@ const getProviderSummaryRow = async (providerId) => {
   return rows[0];
 };
 
+const getProviderBusinessMetrics = async (providerId) => {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const { rows } = await query(
+    `
+      SELECT
+        COALESCE(
+          SUM(
+            CASE
+              WHEN status IN ('confirmed', 'completed') THEN total_amount
+              ELSE 0
+            END
+          ),
+          0
+        ) AS total_revenue,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN status IN ('confirmed', 'completed')
+                AND start_date >= $2
+                AND start_date < $3
+              THEN total_amount
+              ELSE 0
+            END
+          ),
+          0
+        ) AS monthly_revenue,
+        COUNT(*) AS total_reservations,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN status IN ('confirmed', 'completed') THEN 1
+              ELSE 0
+            END
+          ),
+          0
+        ) AS confirmed_reservations
+      FROM reservations
+      WHERE user_id = $1
+    `,
+    [providerId, monthStart.toISOString(), nextMonthStart.toISOString()]
+  );
+
+  return {
+    monthlyRevenue: Number(rows[0]?.monthly_revenue || 0),
+    totalRevenue: Number(rows[0]?.total_revenue || 0),
+    totalReservations: Number(rows[0]?.total_reservations || 0),
+    confirmedReservations: Number(rows[0]?.confirmed_reservations || 0),
+  };
+};
+
 const hasOperationalAccess = (row) => {
   const endAt = parseDate(row.lokify_subscription_end_at);
   const isPeriodValid = !endAt || endAt.getTime() >= Date.now();
@@ -277,11 +329,12 @@ const buildSubscriptionHistory = (row, paymentState) => {
   return items.sort((left, right) => new Date(right.at) - new Date(left.at));
 };
 
-const serializeProviderSummary = (row) => {
+const serializeProviderSummary = (row, options = {}) => {
   if (!row) {
     return null;
   }
 
+  const businessMetrics = options.businessMetrics || null;
   const paymentState = resolvePaymentStatus(row);
   const nextPaymentDueAt =
     row.customer_next_payment_due_at || row.lokify_subscription_end_at || null;
@@ -318,6 +371,13 @@ const serializeProviderSummary = (row) => {
     metrics: {
       totalClients: Number(row.total_clients || 0),
       totalReservations: Number(row.total_reservations || 0),
+    },
+    business: {
+      monthlyRevenue: Number(businessMetrics?.monthlyRevenue || 0),
+      totalRevenue: Number(businessMetrics?.totalRevenue || 0),
+      totalReservations:
+        Number(businessMetrics?.totalReservations || row.total_reservations || 0),
+      confirmedReservations: Number(businessMetrics?.confirmedReservations || 0),
     },
     subscription: {
       lokifyPlanId: row.lokify_plan_id || null,
@@ -441,6 +501,22 @@ const validateOptionalSiret = (value) => {
   }
 
   return normalized;
+};
+
+const chooseVerifiedValue = (currentValue, storedValue, verifiedValue) => {
+  const normalizedCurrentValue = normalizeOptionalText(currentValue);
+  const normalizedStoredValue = normalizeOptionalText(storedValue);
+  const normalizedVerifiedValue = normalizeOptionalText(verifiedValue);
+
+  if (!normalizedVerifiedValue) {
+    return normalizedCurrentValue;
+  }
+
+  if (!normalizedCurrentValue || normalizedCurrentValue === normalizedStoredValue) {
+    return normalizedVerifiedValue;
+  }
+
+  return normalizedCurrentValue;
 };
 
 const upsertProviderBillingState = async (
@@ -622,8 +698,14 @@ export const listProvidersForAdmin = async () => {
   return rows.map(serializeProviderSummary);
 };
 
-export const getProviderForAdmin = async (providerId) =>
-  serializeProviderSummary(await ensureProviderExists(providerId));
+export const getProviderForAdmin = async (providerId) => {
+  const [providerRow, businessMetrics] = await Promise.all([
+    ensureProviderExists(providerId),
+    getProviderBusinessMetrics(providerId),
+  ]);
+
+  return serializeProviderSummary(providerRow, { businessMetrics });
+};
 
 export const getAdminOverview = async () => {
   const providers = await listProvidersForAdmin();
@@ -897,6 +979,13 @@ export const updateProviderFromAdmin = async (providerId, payload = {}) => {
     readPayloadValue(payload, ["city"]) === undefined
       ? currentProvider.city
       : normalizeOptionalText(readPayloadValue(payload, ["city"]));
+  const nextCommercialNameInput = readPayloadValue(payload, [
+    "commercial_name",
+    "commercialName",
+  ]);
+  const nextApeCodeInput = readPayloadValue(payload, ["ape_code", "apeCode"]);
+  const nextSirenInput = readPayloadValue(payload, ["siren"]);
+  const siretChanged = Boolean(nextSiret && nextSiret !== currentProvider.siret);
 
   if (!nextFullName) {
     throw new HttpError(400, "Le nom du prestataire est obligatoire.");
@@ -934,6 +1023,70 @@ export const updateProviderFromAdmin = async (providerId, payload = {}) => {
 
   validateProviderPassword(nextPassword, { required: false });
 
+  const verifiedCompanyIdentity = siretChanged
+    ? await getVerifiedCompanyIdentity(nextSiret)
+    : null;
+  const verifiedCompany = verifiedCompanyIdentity?.company || null;
+  const nextCommercialName =
+    nextCommercialNameInput === undefined
+      ? chooseVerifiedValue(
+          currentProvider.commercial_name,
+          currentProvider.commercial_name,
+          verifiedCompany?.commercialName
+        )
+      : normalizeOptionalText(nextCommercialNameInput);
+  const nextApeCode =
+    nextApeCodeInput === undefined
+      ? chooseVerifiedValue(
+          currentProvider.ape_code,
+          currentProvider.ape_code,
+          verifiedCompany?.apeCode
+        )
+      : normalizeOptionalText(nextApeCodeInput);
+  const nextSiren =
+    nextSirenInput === undefined
+      ? chooseVerifiedValue(
+          currentProvider.siren,
+          currentProvider.siren,
+          verifiedCompany?.siren
+        )
+      : normalizeOptionalText(nextSirenInput);
+  const effectiveCompanyName = siretChanged
+    ? chooseVerifiedValue(
+        nextCompanyName,
+        currentProvider.company_name || currentProvider.full_name,
+        verifiedCompany?.legalName
+      )
+    : nextCompanyName;
+  const effectiveFullName = siretChanged
+    ? chooseVerifiedValue(nextFullName, currentProvider.full_name, verifiedCompany?.legalName)
+    : nextFullName;
+  const effectiveAddress = siretChanged
+    ? chooseVerifiedValue(nextAddress, currentProvider.address, verifiedCompany?.address)
+    : nextAddress;
+  const effectivePostalCode = siretChanged
+    ? chooseVerifiedValue(
+        nextPostalCode,
+        currentProvider.postal_code,
+        verifiedCompany?.postalCode
+      )
+    : nextPostalCode;
+  const effectiveCity = siretChanged
+    ? chooseVerifiedValue(nextCity, currentProvider.city, verifiedCompany?.city)
+    : nextCity;
+  const establishmentAdminStatus = siretChanged
+    ? normalizeOptionalText(verifiedCompany?.establishmentStatus)
+    : currentProvider.establishment_admin_status;
+  const sireneVerificationStatus = siretChanged
+    ? verifiedCompanyIdentity?.verificationStatus || currentProvider.sirene_verification_status
+    : currentProvider.sirene_verification_status;
+  const sireneVerifiedAt = siretChanged
+    ? verifiedCompanyIdentity?.verifiedAt || null
+    : currentProvider.sirene_verified_at;
+  const sireneCheckedAt = siretChanged
+    ? verifiedCompanyIdentity?.checkedAt || currentProvider.sirene_checked_at
+    : currentProvider.sirene_checked_at;
+
   await query(
     `
       UPDATE users
@@ -950,13 +1103,20 @@ export const updateProviderFromAdmin = async (providerId, payload = {}) => {
           address = $12,
           postal_code = $13,
           city = $14,
+          siren = $15,
+          commercial_name = $16,
+          ape_code = $17,
+          establishment_admin_status = $18,
+          sirene_verification_status = $19,
+          sirene_verified_at = $20,
+          sirene_checked_at = $21,
           updated_at = NOW()
       WHERE id = $1
     `,
     [
       providerId,
-      nextFullName,
-      nextCompanyName,
+      effectiveFullName,
+      effectiveCompanyName,
       nextSiret,
       nextFirstName,
       nextLastName,
@@ -965,9 +1125,16 @@ export const updateProviderFromAdmin = async (providerId, payload = {}) => {
       nextProviderStatus,
       nextPhone,
       nextCountry,
-      nextAddress,
-      nextPostalCode,
-      nextCity,
+      effectiveAddress,
+      effectivePostalCode,
+      effectiveCity,
+      nextSiren,
+      nextCommercialName,
+      nextApeCode,
+      establishmentAdminStatus,
+      sireneVerificationStatus,
+      sireneVerifiedAt,
+      sireneCheckedAt,
     ]
   );
 

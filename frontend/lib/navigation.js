@@ -41,6 +41,12 @@ const providerMainNavigation = [
 
 const superAdminMainNavigation = [
   {
+    href: "/dashboard",
+    label: "Dashboard",
+    shortLabel: "DB",
+    icon: "dashboard",
+  },
+  {
     href: "/prestataires",
     label: "Prestataires",
     shortLabel: "PR",
@@ -125,6 +131,12 @@ const providerAccountMenuItems = [
 ];
 
 const superAdminAccountMenuItems = [
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    href: "/dashboard",
+    icon: "dashboard",
+  },
   {
     id: "providers",
     label: "Prestataires",

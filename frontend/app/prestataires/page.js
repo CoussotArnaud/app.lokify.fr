@@ -10,8 +10,9 @@ import MetricCard from "../../components/metric-card";
 import ModalShell from "../../components/modal-shell";
 import Panel from "../../components/panel";
 import StatusPill from "../../components/status-pill";
+import useSiretVerification from "../../hooks/use-siret-verification";
 import { apiRequest } from "../../lib/api";
-import { isValidSiret, normalizeSiret } from "../../lib/siret";
+import { isValidSiret } from "../../lib/siret";
 import {
   formatAdminDateTime,
   getProviderStatusMeta,
@@ -44,6 +45,26 @@ function ProvidersPageContent() {
   const [feedback, setFeedback] = useState(null);
   const [createForm, setCreateForm] = useState(initialCreateForm);
   const isCreateModalOpen = searchParams.get("mode") === "create";
+  const applyCompanyLookupToCreateForm = (company) => {
+    if (!company) {
+      return;
+    }
+
+    setCreateForm((current) => ({
+      ...current,
+      company_name: company.legalName || current.company_name,
+      commercial_name: company.commercialName || current.commercial_name,
+      address: company.address || current.address,
+      postal_code: company.postalCode || current.postal_code,
+      city: company.city || current.city,
+      ape_code: company.apeCode || current.ape_code,
+      siren: company.siren || current.siren,
+    }));
+  };
+  const { verification: siretVerification, verifyNow: verifyCreateSiret } = useSiretVerification({
+    value: createForm.siret,
+    onCompanyResolved: applyCompanyLookupToCreateForm,
+  });
 
   const loadProviders = async () => {
     setLoading(true);
@@ -89,6 +110,11 @@ function ProvidersPageContent() {
         throw new Error("Le numero de SIRET est invalide.");
       }
 
+      const verificationResult = await verifyCreateSiret(createForm.siret);
+      if (["invalid", "not_found", "closed"].includes(verificationResult?.status)) {
+        throw new Error(verificationResult.message);
+      }
+
       const response = await apiRequest("/admin/providers", {
         method: "POST",
         body: createForm,
@@ -96,7 +122,7 @@ function ProvidersPageContent() {
 
       await loadProviders();
       setCreateForm(initialCreateForm);
-      router.push(`/abonnements/${response.provider.id}?created=1`);
+      router.push(`/prestataires/${response.provider.id}?created=1`);
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
     } finally {
@@ -258,7 +284,7 @@ function ProvidersPageContent() {
                 label: "Actions",
                 render: (row) => (
                   <div className="row-actions table-actions-compact">
-                    <Link href={`/abonnements/${row.id}`} className="button ghost">
+                    <Link href={`/prestataires/${row.id}`} className="button ghost">
                       Fiche
                     </Link>
                     <button type="button" className="button ghost" onClick={() => handleDelete(row.id)}>
@@ -320,9 +346,14 @@ function ProvidersPageContent() {
                 inputMode="numeric"
                 required
               />
+              {siretVerification.status !== "idle" ? (
+                <p className={`siret-feedback ${siretVerification.status}`}>
+                  {siretVerification.message}
+                </p>
+              ) : null}
               <p className="field-helper">
-                Le SIRET sera verifie pendant la creation du compte et enrichira automatiquement la
-                fiche si l'etablissement est reconnu.
+                La verification demarre automatiquement a 14 chiffres et complete la fiche si
+                l&apos;etablissement est reconnu.
               </p>
             </div>
 

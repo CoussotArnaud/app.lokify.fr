@@ -10,7 +10,6 @@ import Panel from "../../components/panel";
 import SearchInput from "../../components/search-input";
 import StatusPill from "../../components/status-pill";
 import { apiRequest } from "../../lib/api";
-import { formatCurrency } from "../../lib/date";
 import {
   formatAdminDate,
   getPaymentStatusMeta,
@@ -60,8 +59,11 @@ export default function SubscriptionsPage() {
     }
 
     return [
+      provider.company_name,
       provider.full_name,
       provider.email,
+      provider.siret,
+      provider.commercial_name,
       provider.phone,
       provider.subscription?.lokifyPlanName,
       provider.subscription?.lokifySubscriptionStatus,
@@ -119,10 +121,10 @@ export default function SubscriptionsPage() {
         <div className="page-header">
           <div>
             <p className="eyebrow">Super admin</p>
-            <h3>Pilotage centralise des comptes prestataires, abonnements et paiements.</h3>
+            <h3>Gestion des abonnements prestataires.</h3>
             <p>
-              Cette vue permet de lire la situation de chaque prestataire en un coup d&apos;oeil,
-              d&apos;agir rapidement sur ses coordonnees et d&apos;ouvrir sa fiche detaillee.
+              Cette page reste dediee au suivi des formules Lokify, des paiements et des
+              renouvellements, sans melanger le pilotage global du SaaS.
             </p>
           </div>
         </div>
@@ -135,31 +137,10 @@ export default function SubscriptionsPage() {
 
         <section className="metric-grid">
           <MetricCard
-            icon="bill"
-            label="CA mensuel Lokify"
-            value={formatCurrency(overview?.metrics?.lokifyMonthlyRevenue || 0)}
-            helper="Base recurrente des abonnements plateforme actifs."
-            tone="success"
-          />
-          <MetricCard
-            icon="chart"
-            label="CA annuel Lokify"
-            value={formatCurrency(overview?.metrics?.lokifyAnnualRevenue || 0)}
-            helper="Projection annuelle des revenus plateforme en cours."
-            tone="info"
-          />
-          <MetricCard
-            icon="users"
-            label="Prestataires actifs"
-            value={overview?.metrics?.activeProvidersCurrently || 0}
-            helper="Comptes actives pouvant exploiter Lokify actuellement."
-            tone="success"
-          />
-          <MetricCard
             icon="shield"
             label="Abonnements actifs"
             value={overview?.metrics?.activeSubscriptions || 0}
-            helper="Prestataires actuellement en periode active."
+            helper="Prestataires actuellement en periode active Lokify."
             tone="info"
           />
           <MetricCard
@@ -169,16 +150,30 @@ export default function SubscriptionsPage() {
             helper="Prestataires en retard, impayes ou expires."
             tone="warning"
           />
+          <MetricCard
+            icon="users"
+            label="Prestataires a jour"
+            value={overview?.metrics?.providersUpToDate || 0}
+            helper="Dossiers avec paiement sain ou en essai."
+            tone="success"
+          />
+          <MetricCard
+            icon="settings"
+            label="Stripe configure"
+            value={overview?.metrics?.providerStripeConfigured || 0}
+            helper="Comptes prestataires avec parametres Stripe disponibles."
+            tone="info"
+          />
         </section>
 
         <Panel
           title="Abonnements prestataires"
-          description="Vue d'ensemble des statuts, des paiements et des acces avec modification rapide et acces a la fiche detaillee."
+          description="Vue d'ensemble des statuts, des paiements et des renouvellements avec edition rapide et acces a la fiche prestataire."
           actions={
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Rechercher un prestataire, un email ou un statut"
+              placeholder="Rechercher un prestataire, un email, un SIRET ou un statut"
             />
           }
         >
@@ -216,11 +211,13 @@ export default function SubscriptionsPage() {
                         key={provider.id}
                         className="interactive-table-row"
                         tabIndex={0}
-                        onClick={() => router.push(`/abonnements/${provider.id}`)}
+                        onClick={() =>
+                          router.push(`/prestataires/${provider.id}?from=subscriptions`)
+                        }
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            router.push(`/abonnements/${provider.id}`);
+                            router.push(`/prestataires/${provider.id}?from=subscriptions`);
                           }
                         }}
                       >
@@ -302,7 +299,7 @@ export default function SubscriptionsPage() {
                               className="button ghost"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                router.push(`/abonnements/${provider.id}`);
+                                router.push(`/prestataires/${provider.id}?from=subscriptions`);
                               }}
                             >
                               Voir

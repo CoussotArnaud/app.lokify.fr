@@ -486,6 +486,35 @@ export const verifySiretWithSirene = async (siret) => {
   };
 };
 
+export const previewSiretVerification = async (siret) => {
+  const normalizedSiret = normalizeSiret(siret);
+
+  if (!normalizedSiret) {
+    throw new HttpError(400, "Le numero de SIRET est obligatoire.", {
+      code: "siret_required",
+    });
+  }
+
+  if (!isValidSiret(normalizedSiret)) {
+    throw new HttpError(400, "Le numero de SIRET est invalide.", {
+      code: "siret_invalid",
+    });
+  }
+
+  if (!hasInseeSireneCredentials()) {
+    return {
+      siret: normalizedSiret,
+      lookupStatus: "format_validated",
+      checkedAt: new Date().toISOString(),
+      company: null,
+      message:
+        "Numero de SIRET valide. Verification INSEE detaillee indisponible sur cet environnement.",
+    };
+  }
+
+  return verifySiretWithSirene(normalizedSiret);
+};
+
 export const getVerifiedCompanyIdentity = async (siret) => {
   if (!hasInseeSireneCredentials()) {
     return {
