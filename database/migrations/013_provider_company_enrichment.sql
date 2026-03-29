@@ -1,0 +1,20 @@
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS siren TEXT;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS commercial_name TEXT;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS ape_code TEXT;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS establishment_admin_status TEXT;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS sirene_verification_status TEXT NOT NULL DEFAULT 'not_checked';
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS sirene_verified_at TIMESTAMPTZ;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS sirene_checked_at TIMESTAMPTZ;

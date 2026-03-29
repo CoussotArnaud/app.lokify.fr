@@ -10,6 +10,7 @@ import Panel from "../../components/panel";
 import SearchInput from "../../components/search-input";
 import StatusPill from "../../components/status-pill";
 import { apiRequest } from "../../lib/api";
+import { formatCurrency } from "../../lib/date";
 import {
   formatAdminDate,
   getPaymentStatusMeta,
@@ -118,9 +119,9 @@ export default function SubscriptionsPage() {
         <div className="page-header">
           <div>
             <p className="eyebrow">Super admin</p>
-            <h3>Pilotage centralise des comptes prestataires, abonnements et paiements SaaS.</h3>
+            <h3>Pilotage centralise des comptes prestataires, abonnements et paiements.</h3>
             <p>
-              Cette vue permet de lire la situation de chaque client SaaS en un coup d&apos;oeil,
+              Cette vue permet de lire la situation de chaque prestataire en un coup d&apos;oeil,
               d&apos;agir rapidement sur ses coordonnees et d&apos;ouvrir sa fiche detaillee.
             </p>
           </div>
@@ -135,16 +136,30 @@ export default function SubscriptionsPage() {
         <section className="metric-grid">
           <MetricCard
             icon="bill"
-            label="Abonnements actifs"
-            value={overview?.metrics?.activeSubscriptions || 0}
-            helper="Prestataires actuellement en periode active."
+            label="CA mensuel Lokify"
+            value={formatCurrency(overview?.metrics?.lokifyMonthlyRevenue || 0)}
+            helper="Base recurrente des abonnements plateforme actifs."
+            tone="success"
+          />
+          <MetricCard
+            icon="chart"
+            label="CA annuel Lokify"
+            value={formatCurrency(overview?.metrics?.lokifyAnnualRevenue || 0)}
+            helper="Projection annuelle des revenus plateforme en cours."
+            tone="info"
+          />
+          <MetricCard
+            icon="users"
+            label="Prestataires actifs"
+            value={overview?.metrics?.activeProvidersCurrently || 0}
+            helper="Comptes actives pouvant exploiter Lokify actuellement."
             tone="success"
           />
           <MetricCard
             icon="shield"
-            label="Clients a jour"
-            value={overview?.metrics?.providersUpToDate || 0}
-            helper="Paiement paye ou periode d'essai encore valide."
+            label="Abonnements actifs"
+            value={overview?.metrics?.activeSubscriptions || 0}
+            helper="Prestataires actuellement en periode active."
             tone="info"
           />
           <MetricCard
@@ -154,18 +169,11 @@ export default function SubscriptionsPage() {
             helper="Prestataires en retard, impayes ou expires."
             tone="warning"
           />
-          <MetricCard
-            icon="settings"
-            label="Stripe connecte"
-            value={overview?.metrics?.providerStripeConfigured || 0}
-            helper="Comptes paiement client deja configures."
-            tone="success"
-          />
         </section>
 
         <Panel
           title="Abonnements prestataires"
-          description="Liste de pilotage SaaS avec lecture rapide des statuts, edition express et acces a la fiche detaillee."
+          description="Vue d'ensemble des statuts, des paiements et des acces avec modification rapide et acces a la fiche detaillee."
           actions={
             <SearchInput
               value={search}

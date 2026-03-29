@@ -6,6 +6,7 @@ import {
   getProviderController,
   getProvidersController,
   getSuperAdminStripeSettingsController,
+  postProviderInvitationController,
   postProviderPasswordResetController,
   postProviderController,
   putProviderController,
@@ -19,6 +20,7 @@ router.get("/providers", getProvidersController);
 router.get("/providers/:providerId", getProviderController);
 router.post("/providers", postProviderController);
 router.put("/providers/:providerId", putProviderController);
+router.post("/providers/:providerId/invitation", postProviderInvitationController);
 router.post("/providers/:providerId/password-reset", postProviderPasswordResetController);
 router.delete("/providers/:providerId", deleteProviderController);
 router.get("/stripe/settings", getSuperAdminStripeSettingsController);

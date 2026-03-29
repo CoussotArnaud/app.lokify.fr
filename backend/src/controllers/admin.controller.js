@@ -5,6 +5,7 @@ import {
   getAdminOverview,
   getProviderForAdmin,
   listProvidersForAdmin,
+  requestProviderInvitationFromAdmin,
   requestProviderPasswordResetFromAdmin,
   updateProviderFromAdmin,
 } from "../services/admin.service.js";
@@ -46,13 +47,36 @@ export const postProviderPasswordResetController = asyncHandler(async (req, res)
   const message =
     resetRequest.deliveryMode === "smtp"
       ? "Un email de reinitialisation a ete envoye au prestataire."
-      : "Le lien de reinitialisation a ete genere en mode demo local.";
+      : "Le lien de reinitialisation a ete genere et peut etre transmis au prestataire.";
 
   res.json({
     message,
     deliveryMode: resetRequest.deliveryMode,
     requestedAt: resetRequest.requestedAt,
     expiresAt: resetRequest.expiresAt,
+  });
+});
+
+export const postProviderInvitationController = asyncHandler(async (req, res) => {
+  const invitationRequest = await requestProviderInvitationFromAdmin(
+    req.params.providerId,
+    req.user.id
+  );
+  const message =
+    invitationRequest.purpose === "activation"
+      ? invitationRequest.deliveryMode === "smtp"
+        ? "L'invitation d'activation a ete envoyee au prestataire."
+        : "Le lien d'activation a ete genere et peut etre transmis au prestataire."
+      : invitationRequest.deliveryMode === "smtp"
+        ? "Un email de confirmation a ete envoye au prestataire."
+        : "Le lien securise a ete genere et peut etre transmis au prestataire.";
+
+  res.json({
+    message,
+    purpose: invitationRequest.purpose,
+    deliveryMode: invitationRequest.deliveryMode,
+    requestedAt: invitationRequest.requestedAt,
+    expiresAt: invitationRequest.expiresAt,
   });
 });
 

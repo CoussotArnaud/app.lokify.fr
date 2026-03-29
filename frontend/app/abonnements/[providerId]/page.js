@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../components/app-shell";
 import MetricCard from "../../../components/metric-card";
@@ -21,7 +21,8 @@ import {
 } from "../../../lib/provider-admin";
 
 const createProviderForm = (provider) => ({
-  full_name: provider?.full_name || "",
+  company_name: provider?.company_name || provider?.full_name || "",
+  siret: provider?.siret || "",
   first_name: provider?.first_name || "",
   last_name: provider?.last_name || "",
   email: provider?.email || "",
@@ -32,8 +33,9 @@ const createProviderForm = (provider) => ({
   country: provider?.country || "",
 });
 
-export default function ProviderSubscriptionDetailPage() {
+function ProviderSubscriptionDetailPageContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const providerId = params?.providerId;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,13 +74,12 @@ export default function ProviderSubscriptionDetailPage() {
     setFeedback(null);
 
     try {
-      const response = await apiRequest(`/admin/providers/${providerId}`, {
+      await apiRequest(`/admin/providers/${providerId}`, {
         method: "PUT",
         body: form,
       });
 
-      setProvider(response.provider);
-      setForm(createProviderForm(response.provider));
+      await loadProvider();
       setEditing(false);
       setFeedback({
         type: "success",
@@ -91,12 +92,12 @@ export default function ProviderSubscriptionDetailPage() {
     }
   };
 
-  const handleResetPassword = async () => {
+  const handleInvitation = async () => {
     setSendingReset(true);
     setResetFeedback(null);
 
     try {
-      const response = await apiRequest(`/admin/providers/${providerId}/password-reset`, {
+      const response = await apiRequest(`/admin/providers/${providerId}/invitation`, {
         method: "POST",
       });
 
@@ -123,6 +124,8 @@ export default function ProviderSubscriptionDetailPage() {
   );
   const paymentStatusMeta = getPaymentStatusMeta(provider?.payments?.customerPaymentStatus);
   const stripeStatusMeta = getStripeStatusMeta(provider?.payments?.customerStripeAccountStatus);
+  const isInvitationPending = provider?.provider_status === "invited";
+  const isNewlyCreated = searchParams.get("created") === "1";
 
   return (
     <AppShell>
@@ -132,8 +135,8 @@ export default function ProviderSubscriptionDetailPage() {
             <p className="eyebrow">Super admin</p>
             <h3>Fiche prestataire detaillee</h3>
             <p>
-              Vue complete du compte, de l&apos;abonnement, du paiement et des actions
-              d&apos;assistance du prestataire.
+              Vue claire du compte, de l&apos;abonnement Lokify et de l&apos;etat d&apos;activation
+              du prestataire.
             </p>
           </div>
           <div className="page-header-actions">
@@ -144,6 +147,13 @@ export default function ProviderSubscriptionDetailPage() {
         </div>
 
         {feedback ? <p className={`feedback ${feedback.type}`}>{feedback.message}</p> : null}
+
+        {isNewlyCreated ? (
+          <p className="feedback info">
+            Le compte a ete cree en statut invite. Vous pouvez maintenant envoyer le lien
+            d&apos;activation au prestataire.
+          </p>
+        ) : null}
 
         {loading && !provider ? (
           <Panel title="Chargement de la fiche" description="Lecture des donnees prestataire en cours.">
@@ -157,7 +167,7 @@ export default function ProviderSubscriptionDetailPage() {
         {!loading && provider ? (
           <>
             <Panel
-              title={provider.full_name}
+              title={provider.company_name || provider.full_name}
               description={`${provider.email} • compte cree le ${formatAdminDate(provider.created_at)}`}
               actions={
                 <div className="row-actions">
@@ -216,12 +226,24 @@ export default function ProviderSubscriptionDetailPage() {
                 {editing ? (
                   <form className="form-grid two-columns" onSubmit={handleSave}>
                     <div className="field">
-                      <label htmlFor="provider-full-name">Nom / societe</label>
+                      <label htmlFor="provider-company-name">Nom de la societe</label>
                       <input
-                        id="provider-full-name"
-                        value={form.full_name}
+                        id="provider-company-name"
+                        value={form.company_name}
                         onChange={(event) =>
-                          setForm((current) => ({ ...current, full_name: event.target.value }))
+                          setForm((current) => ({ ...current, company_name: event.target.value }))
+                        }
+                        required
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor="provider-siret">SIRET</label>
+                      <input
+                        id="provider-siret"
+                        value={form.siret}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, siret: event.target.value }))
                         }
                         required
                       />
@@ -237,6 +259,17 @@ export default function ProviderSubscriptionDetailPage() {
                           setForm((current) => ({ ...current, email: event.target.value }))
                         }
                         required
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor="provider-phone">Telephone</label>
+                      <input
+                        id="provider-phone"
+                        value={form.phone}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, phone: event.target.value }))
+                        }
                       />
                     </div>
 
@@ -258,17 +291,6 @@ export default function ProviderSubscriptionDetailPage() {
                         value={form.last_name}
                         onChange={(event) =>
                           setForm((current) => ({ ...current, last_name: event.target.value }))
-                        }
-                      />
-                    </div>
-
-                    <div className="field">
-                      <label htmlFor="provider-phone">Telephone</label>
-                      <input
-                        id="provider-phone"
-                        value={form.phone}
-                        onChange={(event) =>
-                          setForm((current) => ({ ...current, phone: event.target.value }))
                         }
                       />
                     </div>
@@ -332,8 +354,14 @@ export default function ProviderSubscriptionDetailPage() {
                 ) : (
                   <div className="detail-grid">
                     <article className="detail-card">
-                      <strong>Nom / societe</strong>
-                      <span className="muted-text">{provider.full_name}</span>
+                      <strong>Nom de la societe</strong>
+                      <span className="muted-text">
+                        {provider.company_name || provider.full_name || "Non renseigne"}
+                      </span>
+                    </article>
+                    <article className="detail-card">
+                      <strong>SIRET</strong>
+                      <span className="muted-text">{provider.siret || "Non renseigne"}</span>
                     </article>
                     <article className="detail-card">
                       <strong>Prenom / nom</strong>
@@ -371,8 +399,8 @@ export default function ProviderSubscriptionDetailPage() {
               </Panel>
 
               <Panel
-                title="Securite / connexion"
-                description="Assistance de connexion sans jamais exposer le mot de passe du client."
+                title="Invitation / activation"
+                description="Le mot de passe n'est jamais defini par le super admin. Le prestataire active lui-meme son compte via un lien securise."
               >
                 {resetFeedback ? (
                   <p className={`feedback ${resetFeedback.type}`}>{resetFeedback.message}</p>
@@ -384,20 +412,24 @@ export default function ProviderSubscriptionDetailPage() {
                     <span className="muted-text">{provider.security?.loginEmail}</span>
                   </article>
                   <article className="detail-card">
+                    <strong>Statut du compte</strong>
+                    <span className="muted-text">
+                      {isInvitationPending
+                        ? "Invite - en attente d'activation"
+                        : provider.security?.accountActivationStatus === "blocked"
+                          ? "Bloque"
+                          : "Actif"}
+                    </span>
+                  </article>
+                  <article className="detail-card">
                     <strong>Dernier envoi de lien</strong>
                     <span className="muted-text">
-                      {formatAdminDateTime(provider.security?.lastPasswordResetRequestedAt)}
+                      {formatAdminDateTime(provider.security?.lastInvitationSentAt)}
                     </span>
                   </article>
                   <article className="detail-card">
-                    <strong>Mot de passe visible</strong>
-                    <span className="muted-text">Jamais visible par le super admin.</span>
-                  </article>
-                  <article className="detail-card">
-                    <strong>Action d'assistance</strong>
-                    <span className="muted-text">
-                      Envoi d&apos;un lien securise standard de reinitialisation.
-                    </span>
+                    <strong>Mot de passe</strong>
+                    <span className="muted-text">Defini uniquement par le prestataire.</span>
                   </article>
                 </div>
 
@@ -405,12 +437,14 @@ export default function ProviderSubscriptionDetailPage() {
                   <button
                     type="button"
                     className="button primary"
-                    onClick={handleResetPassword}
+                    onClick={handleInvitation}
                     disabled={sendingReset}
                   >
                     {sendingReset
                       ? "Envoi en cours..."
-                      : "Envoyer un email de reinitialisation"}
+                      : isInvitationPending
+                        ? "Envoyer l'invitation"
+                        : "Envoyer l'email de confirmation"}
                   </button>
                 </div>
               </Panel>
@@ -534,5 +568,19 @@ export default function ProviderSubscriptionDetailPage() {
         ) : null}
       </div>
     </AppShell>
+  );
+}
+
+export default function ProviderSubscriptionDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="page-stack" />
+        </AppShell>
+      }
+    >
+      <ProviderSubscriptionDetailPageContent />
+    </Suspense>
   );
 }

@@ -18,13 +18,55 @@ const parseBoolean = (value, fallback = false) => {
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 };
 
+const parseList = (value) =>
+  String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const vercelEnv = String(process.env.VERCEL_ENV || "")
+  .trim()
+  .toLowerCase();
+const nodeEnv = String(process.env.NODE_ENV || "development")
+  .trim()
+  .toLowerCase();
+const isProductionRuntime = nodeEnv === "production" || vercelEnv === "production";
+
+const hasExplicitEnv = (name) => String(process.env[name] || "").trim().length > 0;
+
+const assertProductionRequirement = (condition, message) => {
+  if (!condition) {
+    throw new Error(message);
+  }
+};
+
 const env = {
-  nodeEnv: process.env.NODE_ENV || "development",
+  nodeEnv,
   port: Number(process.env.PORT || 4000),
+  vercelEnv,
+  isProductionRuntime,
   clientUrl: process.env.CLIENT_URL || "http://localhost:3001",
+  clientUrls: Array.from(
+    new Set([
+      process.env.CLIENT_URL || "http://localhost:3001",
+      ...parseList(process.env.CLIENT_URLS),
+    ])
+  ),
+  clientUrlPatterns: parseList(process.env.CLIENT_URL_PATTERNS),
+  allowVercelPreviewOrigins: parseBoolean(
+    process.env.ALLOW_VERCEL_PREVIEW_ORIGINS,
+    vercelEnv === "preview"
+  ),
+  vercelFrontendProjectName: String(process.env.VERCEL_FRONTEND_PROJECT_NAME || "")
+    .trim()
+    .toLowerCase(),
   databaseMode: String(process.env.DATABASE_MODE || "memory").toLowerCase(),
   databaseUrl: process.env.DATABASE_URL || "",
   databaseSsl: parseBoolean(process.env.DATABASE_SSL, false),
+  databaseSslRejectUnauthorized: parseBoolean(
+    process.env.DATABASE_SSL_REJECT_UNAUTHORIZED,
+    isProductionRuntime
+  ),
   databaseHost: process.env.DATABASE_HOST || "localhost",
   databasePort: Number(process.env.DATABASE_PORT || 5432),
   databaseUser: process.env.DATABASE_USER || "postgres",
@@ -46,6 +88,13 @@ const env = {
   lokifyStripeTestSecretKey: process.env.LOKIFY_STRIPE_TEST_SECRET_KEY || "",
   lokifyStripeTestWebhookSecret: process.env.LOKIFY_STRIPE_TEST_WEBHOOK_SECRET || "",
   lokifyStripeTestPublishableKey: process.env.LOKIFY_STRIPE_TEST_PUBLISHABLE_KEY || "",
+  inseeApiKey: process.env.INSEE_API_KEY || "",
+  inseeClientId: process.env.INSEE_CLIENT_ID || "",
+  inseeClientSecret: process.env.INSEE_CLIENT_SECRET || "",
+  inseeApiBaseUrl:
+    process.env.INSEE_API_BASE_URL || "https://api.insee.fr/api-sirene/3.11",
+  inseeTokenUrl: process.env.INSEE_TOKEN_URL || "https://api.insee.fr/token",
+  inseeTimeoutMs: Number(process.env.INSEE_TIMEOUT_MS || 8000),
   mailTransportMode: String(process.env.MAIL_TRANSPORT_MODE || "log")
     .trim()
     .toLowerCase(),
@@ -60,5 +109,36 @@ const env = {
     `${process.env.CLIENT_URL || "http://localhost:3001"}/reset-password`,
   passwordResetTokenTtlMinutes: Number(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || 120),
 };
+
+if (env.isProductionRuntime) {
+  assertProductionRequirement(
+    hasExplicitEnv("CLIENT_URL") && !/localhost/i.test(env.clientUrl),
+    "CLIENT_URL doit etre defini vers l'URL publique en production."
+  );
+  assertProductionRequirement(
+    env.databaseMode === "postgres",
+    "DATABASE_MODE doit etre positionne sur 'postgres' en production."
+  );
+  assertProductionRequirement(
+    Boolean(env.databaseUrl),
+    "DATABASE_URL doit etre defini en production."
+  );
+  assertProductionRequirement(
+    hasExplicitEnv("JWT_SECRET") && env.jwtSecret !== "change-me-lokify",
+    "JWT_SECRET doit etre defini explicitement avec une valeur forte en production."
+  );
+  assertProductionRequirement(
+    hasExplicitEnv("ENCRYPTION_SECRET") && env.encryptionSecret !== "change-me-lokify",
+    "ENCRYPTION_SECRET doit etre defini explicitement avec une valeur forte en production."
+  );
+  assertProductionRequirement(
+    hasExplicitEnv("LOKIFY_SUPER_ADMIN_EMAIL"),
+    "LOKIFY_SUPER_ADMIN_EMAIL doit etre defini explicitement en production."
+  );
+  assertProductionRequirement(
+    hasExplicitEnv("LOKIFY_SUPER_ADMIN_PASSWORD") && env.lokifySuperAdminPassword !== "admin",
+    "LOKIFY_SUPER_ADMIN_PASSWORD doit etre defini explicitement avec une valeur forte en production."
+  );
+}
 
 export default env;

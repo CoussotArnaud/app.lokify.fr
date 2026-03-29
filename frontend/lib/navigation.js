@@ -60,27 +60,42 @@ const superAdminMainNavigation = [
   },
 ];
 
-const providerQuickActionItems = [
-  {
-    id: "reservation",
-    label: "Nouvelle reservation",
-    href: "/reservations?mode=create",
-    helper: "Creer une location et planifier la sortie.",
-  },
-  {
-    id: "quote",
-    label: "Nouveau devis",
-    href: "/reservations?module=documents&mode=quote",
-    helper: "Preparer une base commerciale avant validation.",
-  },
-  {
-    id: "requests",
-    label: "Demandes",
-    href: "/dashboard?tab=reservations&focus=demandes",
-    helper: "Revoir les demandes en attente de qualification.",
-    badge: 3,
-  },
-];
+const providerQuickActionConfig = {
+  triggerLabel: "Reservation",
+  items: [
+    {
+      id: "reservation",
+      label: "Nouvelle reservation",
+      href: "/reservations?mode=create",
+      helper: "Creer une location et planifier la sortie.",
+    },
+    {
+      id: "quote",
+      label: "Nouveau devis",
+      href: "/reservations?module=documents&mode=quote",
+      helper: "Preparer une base commerciale avant validation.",
+    },
+    {
+      id: "requests",
+      label: "Demandes",
+      href: "/dashboard?tab=reservations&focus=demandes",
+      helper: "Revoir les demandes en attente de qualification.",
+      badge: 3,
+    },
+  ],
+};
+
+const superAdminQuickActionConfig = {
+  triggerLabel: "Prestataire",
+  items: [
+    {
+      id: "provider",
+      label: "Nouveau prestataire",
+      href: "/prestataires?mode=create",
+      helper: "Creer un compte invite puis envoyer son lien d'activation.",
+    },
+  ],
+};
 
 const providerAccountMenuItems = [
   {
@@ -133,8 +148,22 @@ const superAdminAccountMenuItems = [
 export const getMainNavigation = (user) =>
   isSuperAdmin(user) ? superAdminMainNavigation : providerMainNavigation;
 
-export const getQuickActionItems = (user) =>
-  isProvider(user) && canAccessOperationalModules(user) ? providerQuickActionItems : [];
+export const getQuickActionConfig = (user) => {
+  if (isSuperAdmin(user)) {
+    return superAdminQuickActionConfig;
+  }
+
+  if (isProvider(user) && canAccessOperationalModules(user)) {
+    return providerQuickActionConfig;
+  }
+
+  return {
+    triggerLabel: "",
+    items: [],
+  };
+};
+
+export const getQuickActionItems = (user) => getQuickActionConfig(user).items;
 
 export const getAccountMenuItems = (user) => {
   if (isSuperAdmin(user)) {

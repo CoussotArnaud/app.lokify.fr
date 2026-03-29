@@ -7,11 +7,11 @@ import { useAuth } from "./auth-provider";
 import BrandLogo from "./brand-logo";
 import Icon from "./icon";
 import QuickActionsMenu from "./quick-actions-menu";
-import { canAccessOperationalModules, getWorkspaceHomePath } from "../lib/access";
+import { getWorkspaceHomePath } from "../lib/access";
 import {
   getAccountMenuItems,
   getMainNavigation,
-  getQuickActionItems,
+  getQuickActionConfig,
 } from "../lib/navigation";
 
 const isActivePath = (pathname, href) => pathname === href || pathname.startsWith(`${href}/`);
@@ -19,10 +19,10 @@ const isActivePath = (pathname, href) => pathname === href || pathname.startsWit
 export default function WorkspaceHeader() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const canUseOperationalModules = canAccessOperationalModules(user);
   const mainNavigation = getMainNavigation(user);
   const accountMenuItems = getAccountMenuItems(user);
-  const quickActionItems = getQuickActionItems(user);
+  const quickActionConfig = getQuickActionConfig(user);
+  const quickActionItems = quickActionConfig.items;
 
   return (
     <header className="workspace-header">
@@ -42,7 +42,7 @@ export default function WorkspaceHeader() {
               className={`main-nav-link ${isActivePath(pathname, item.href) ? "active" : ""}`}
             >
               <span className="main-nav-icon">
-                <Icon name={item.icon} size={16} />
+                <Icon name={item.icon} size={14} />
               </span>
               <span>{item.label}</span>
             </Link>
@@ -50,8 +50,11 @@ export default function WorkspaceHeader() {
         </nav>
 
         <div className="workspace-header-actions">
-          {canUseOperationalModules && quickActionItems.length ? (
-            <QuickActionsMenu items={quickActionItems} />
+          {quickActionItems.length ? (
+            <QuickActionsMenu
+              items={quickActionItems}
+              triggerLabel={quickActionConfig.triggerLabel}
+            />
           ) : null}
 
           <details className="user-menu">
@@ -59,19 +62,19 @@ export default function WorkspaceHeader() {
               <span className="user-avatar">{user?.full_name?.slice(0, 2)?.toUpperCase() || "LK"}</span>
               <span className="user-meta">
                 <strong>{user?.full_name || "Espace LOKIFY"}</strong>
-                <small>{user?.email || "demo@lokify.app"}</small>
+                <small>{user?.email || "contact@lokify.app"}</small>
               </span>
-              <Icon name="chevronDown" size={14} />
+              <Icon name="chevronDown" size={12} />
             </summary>
             <div className="user-popover">
               {accountMenuItems.map((item) => (
                 <Link key={item.id} href={item.href} className="user-popover-link">
-                  <Icon name={item.icon} size={16} />
+                  <Icon name={item.icon} size={14} />
                   <span>{item.label}</span>
                 </Link>
               ))}
               <button type="button" className="user-popover-link" onClick={logout}>
-                <Icon name="logout" size={16} />
+                <Icon name="logout" size={14} />
                 <span>Se deconnecter</span>
               </button>
             </div>

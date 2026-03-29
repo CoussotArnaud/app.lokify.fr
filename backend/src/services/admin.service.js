@@ -5,11 +5,13 @@ import bcrypt from "bcryptjs";
 import { query } from "../config/db.js";
 import { getLokifyPlanById } from "../config/lokify-plans.js";
 import HttpError from "../utils/http-error.js";
+import { isValidSiret, normalizeSiret } from "../utils/siret.js";
 import { ensureUserSettingsRecords } from "./account-profile.service.js";
+import { getVerifiedCompanyIdentity } from "./insee-sirene.service.js";
 import { requestPasswordResetForUser } from "./password-reset.service.js";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trial"]);
-const allowedProviderStatuses = new Set(["active", "blocked"]);
+const allowedProviderStatuses = new Set(["invited", "active", "blocked"]);
 const allowedSubscriptionStatuses = new Set([
   "inactive",
   "trial",
@@ -32,6 +34,10 @@ const providerAdminSelect = `
   SELECT
     users.id,
     users.full_name,
+    users.company_name,
+    users.siret,
+    users.siren,
+    users.commercial_name,
     users.first_name,
     users.last_name,
     users.email,
@@ -40,6 +46,11 @@ const providerAdminSelect = `
     users.address,
     users.postal_code,
     users.city,
+    users.ape_code,
+    users.establishment_admin_status,
+    users.sirene_verification_status,
+    users.sirene_verified_at,
+    users.sirene_checked_at,
     users.account_role,
     users.provider_status,
     users.created_at,
@@ -100,6 +111,27 @@ const normalizeOptionalText = (value) => {
 };
 
 const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
+const normalizeRecurringMonthlyRevenue = (price, interval) => {
+  const normalizedPrice = Number(price || 0);
+  const normalizedInterval = String(interval || "month").trim().toLowerCase();
+
+  if (!normalizedPrice) {
+    return 0;
+  }
+
+  return normalizedInterval === "year" ? normalizedPrice / 12 : normalizedPrice;
+};
+
+const normalizeRecurringAnnualRevenue = (price, interval) => {
+  const normalizedPrice = Number(price || 0);
+  const normalizedInterval = String(interval || "month").trim().toLowerCase();
+
+  if (!normalizedPrice) {
+    return 0;
+  }
+
+  return normalizedInterval === "year" ? normalizedPrice : normalizedPrice * 12;
+};
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
 
@@ -263,6 +295,10 @@ const serializeProviderSummary = (row) => {
     id: row.id,
     internal_id: row.id,
     full_name: row.full_name,
+    company_name: row.company_name || row.full_name || null,
+    siret: row.siret || null,
+    siren: row.siren || null,
+    commercial_name: row.commercial_name || null,
     first_name: row.first_name || null,
     last_name: row.last_name || null,
     email: row.email,
@@ -271,6 +307,11 @@ const serializeProviderSummary = (row) => {
     address: row.address || null,
     postal_code: row.postal_code || null,
     city: row.city || null,
+    ape_code: row.ape_code || null,
+    establishment_admin_status: row.establishment_admin_status || null,
+    sirene_verification_status: row.sirene_verification_status || "not_checked",
+    sirene_verified_at: row.sirene_verified_at || null,
+    sirene_checked_at: row.sirene_checked_at || null,
     account_role: row.account_role,
     provider_status: row.provider_status,
     created_at: row.created_at,
@@ -296,6 +337,7 @@ const serializeProviderSummary = (row) => {
       renewalCanceledAt: row.renewal_canceled_at || null,
       nextRenewalAt: row.lokify_subscription_end_at || null,
       canAccessOperationalModules: hasOperationalAccess(row),
+      saasLifecycleStatus: hasOperationalAccess(row) ? "active" : "inactive",
       history: buildSubscriptionHistory(row, paymentState),
     },
     payments: {
@@ -315,6 +357,13 @@ const serializeProviderSummary = (row) => {
     security: {
       loginEmail: row.email,
       lastPasswordResetRequestedAt: row.last_password_reset_requested_at || null,
+      lastInvitationSentAt: row.last_password_reset_requested_at || null,
+      accountActivationStatus:
+        row.provider_status === "invited"
+          ? "pending"
+          : row.provider_status === "blocked"
+            ? "blocked"
+            : "active",
     },
   };
 };
@@ -343,7 +392,7 @@ const validateProviderPassword = (password, { required = false } = {}) => {
 };
 
 const validateProviderStatus = (providerStatus) => {
-  const normalizedStatus = String(providerStatus || "active").trim().toLowerCase();
+  const normalizedStatus = String(providerStatus || "invited").trim().toLowerCase();
 
   if (!allowedProviderStatuses.has(normalizedStatus)) {
     throw new HttpError(400, "Statut prestataire invalide.");
@@ -378,6 +427,20 @@ const validatePaymentStatus = (paymentStatus) => {
   }
 
   return normalizedStatus;
+};
+
+const validateOptionalSiret = (value) => {
+  const normalized = normalizeSiret(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (!isValidSiret(normalized)) {
+    throw new HttpError(400, "Le numero de SIRET est invalide.");
+  }
+
+  return normalized;
 };
 
 const upsertProviderBillingState = async (
@@ -441,6 +504,12 @@ const upsertProviderBillingState = async (
           access_restricted_by_subscription = $11,
           cancel_at_period_end = $12,
           renewal_canceled_at = $13,
+          requested_lokify_plan_id = NULL,
+          requested_lokify_plan_name = NULL,
+          requested_lokify_plan_price = NULL,
+          requested_lokify_plan_interval = NULL,
+          requested_lokify_plan_note = NULL,
+          requested_lokify_plan_requested_at = NULL,
           updated_at = NOW()
       WHERE user_id = $1
     `,
@@ -558,15 +627,43 @@ export const getProviderForAdmin = async (providerId) =>
 
 export const getAdminOverview = async () => {
   const providers = await listProvidersForAdmin();
+  const providersWithActiveLokifyRevenue = providers.filter(
+    (provider) =>
+      provider.provider_status === "active" &&
+      provider.subscription.lokifySubscriptionStatus === "active"
+  );
+  const lokifyMonthlyRevenue = providersWithActiveLokifyRevenue.reduce(
+    (sum, provider) =>
+      sum +
+      normalizeRecurringMonthlyRevenue(
+        provider.subscription?.lokifyPlanPrice,
+        provider.subscription?.lokifyPlanInterval
+      ),
+    0
+  );
+  const lokifyAnnualRevenue = providersWithActiveLokifyRevenue.reduce(
+    (sum, provider) =>
+      sum +
+      normalizeRecurringAnnualRevenue(
+        provider.subscription?.lokifyPlanPrice,
+        provider.subscription?.lokifyPlanInterval
+      ),
+    0
+  );
+  const activeProviders = providers.filter((provider) => provider.provider_status === "active").length;
 
   return {
     metrics: {
       totalProviders: providers.length,
-      activeProviders: providers.filter((provider) => provider.provider_status === "active").length,
+      activeProviders,
+      activeProvidersCurrently: activeProviders,
+      invitedProviders: providers.filter((provider) => provider.provider_status === "invited").length,
       blockedProviders: providers.filter((provider) => provider.provider_status === "blocked").length,
       activeSubscriptions: providers.filter(
         (provider) => provider.subscription.lokifySubscriptionStatus === "active"
       ).length,
+      lokifyMonthlyRevenue,
+      lokifyAnnualRevenue,
       providerStripeConfigured: providers.filter(
         (provider) => provider.payments.customerStripeConfigured
       ).length,
@@ -582,10 +679,14 @@ export const getAdminOverview = async () => {
 };
 
 export const createProviderFromAdmin = async (payload = {}) => {
-  const fullName = normalizeOptionalText(payload.full_name ?? payload.fullName);
+  const requestedCompanyName = normalizeOptionalText(payload.company_name ?? payload.companyName);
+  const requestedFullName = normalizeOptionalText(payload.full_name ?? payload.fullName);
   const email = normalizeEmail(payload.email);
-  const password = String(payload.password || "");
-  const providerStatus = validateProviderStatus(payload.provider_status ?? payload.providerStatus);
+  const password = normalizeOptionalText(payload.password);
+  const siret = validateOptionalSiret(payload.siret);
+  const providerStatus = validateProviderStatus(
+    payload.provider_status ?? payload.providerStatus ?? "invited"
+  );
   const firstName = normalizeOptionalText(payload.first_name ?? payload.firstName);
   const lastName = normalizeOptionalText(payload.last_name ?? payload.lastName);
   const phone = normalizeOptionalText(payload.phone);
@@ -593,16 +694,47 @@ export const createProviderFromAdmin = async (payload = {}) => {
   const address = normalizeOptionalText(payload.address);
   const postalCode = normalizeOptionalText(payload.postal_code ?? payload.postalCode);
   const city = normalizeOptionalText(payload.city);
+  const commercialNameInput = normalizeOptionalText(
+    payload.commercial_name ?? payload.commercialName
+  );
+  const apeCodeInput = normalizeOptionalText(payload.ape_code ?? payload.apeCode);
+  const sirenInput = normalizeOptionalText(payload.siren);
+
+  if (!siret) {
+    throw new HttpError(400, "Le numero de SIRET est obligatoire.");
+  }
+
+  validateProviderPassword(password, { required: false });
+  const verifiedCompanyIdentity = await getVerifiedCompanyIdentity(siret);
+  const verifiedCompany = verifiedCompanyIdentity.company || null;
+  const companyName =
+    requestedCompanyName ||
+    normalizeOptionalText(verifiedCompany?.legalName) ||
+    requestedFullName;
+  const fullName = companyName || requestedFullName;
+  const commercialName =
+    commercialNameInput || normalizeOptionalText(verifiedCompany?.commercialName);
+  const normalizedAddress = address || normalizeOptionalText(verifiedCompany?.address);
+  const normalizedPostalCode =
+    postalCode || normalizeOptionalText(verifiedCompany?.postalCode);
+  const normalizedCity = city || normalizeOptionalText(verifiedCompany?.city);
+  const normalizedApeCode = apeCodeInput || normalizeOptionalText(verifiedCompany?.apeCode);
+  const normalizedSiren = sirenInput || normalizeOptionalText(verifiedCompany?.siren);
+  const establishmentAdminStatus = normalizeOptionalText(
+    verifiedCompany?.establishmentStatus
+  );
 
   if (!fullName) {
     throw new HttpError(400, "Le nom du prestataire est obligatoire.");
   }
 
+  if (!companyName) {
+    throw new HttpError(400, "Le nom de la societe est obligatoire.");
+  }
+
   if (!email) {
     throw new HttpError(400, "L'email du prestataire est obligatoire.");
   }
-
-  validateProviderPassword(password, { required: true });
 
   const existingUser = await query("SELECT id FROM users WHERE email = $1", [email]);
 
@@ -610,14 +742,30 @@ export const createProviderFromAdmin = async (payload = {}) => {
     throw new HttpError(409, "Un utilisateur avec cet email existe deja.");
   }
 
+  if (siret) {
+    const existingSiret = await query(
+      "SELECT id FROM users WHERE siret = $1 AND account_role = 'provider' LIMIT 1",
+      [siret]
+    );
+
+    if (existingSiret.rows[0]) {
+      throw new HttpError(409, "Un compte prestataire avec ce SIRET existe deja.");
+    }
+  }
+
   const providerId = crypto.randomUUID();
-  const passwordHash = await bcrypt.hash(password, 10);
+  const passwordSeed = password || crypto.randomBytes(24).toString("hex");
+  const passwordHash = await bcrypt.hash(passwordSeed, 10);
 
   await query(
     `
       INSERT INTO users (
         id,
         full_name,
+        company_name,
+        siret,
+        siren,
+        commercial_name,
         first_name,
         last_name,
         email,
@@ -628,13 +776,45 @@ export const createProviderFromAdmin = async (payload = {}) => {
         country,
         address,
         postal_code,
-        city
+        city,
+        ape_code,
+        establishment_admin_status,
+        sirene_verification_status,
+        sirene_verified_at,
+        sirene_checked_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, 'provider', $7, $8, $9, $10, $11, $12)
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+        'provider',
+        $11,
+        $12,
+        $13,
+        $14,
+        $15,
+        $16,
+        $17,
+        $18,
+        $19,
+        $20,
+        $21
+      )
     `,
     [
       providerId,
       fullName,
+      companyName,
+      siret,
+      normalizedSiren,
+      commercialName,
       firstName,
       lastName,
       email,
@@ -642,9 +822,14 @@ export const createProviderFromAdmin = async (payload = {}) => {
       providerStatus,
       phone,
       country,
-      address,
-      postalCode,
-      city,
+      normalizedAddress,
+      normalizedPostalCode,
+      normalizedCity,
+      normalizedApeCode,
+      establishmentAdminStatus,
+      verifiedCompanyIdentity.verificationStatus,
+      verifiedCompanyIdentity.verifiedAt,
+      verifiedCompanyIdentity.checkedAt,
     ]
   );
 
@@ -663,14 +848,23 @@ export const createProviderFromAdmin = async (payload = {}) => {
 
 export const updateProviderFromAdmin = async (providerId, payload = {}) => {
   const currentProvider = await ensureProviderExists(providerId);
+  const nextCompanyNameInput = readPayloadValue(payload, ["company_name", "companyName"]);
   const nextFullNameInput = readPayloadValue(payload, ["full_name", "fullName"]);
   const nextEmailInput = readPayloadValue(payload, ["email"]);
+  const nextCompanyName =
+    nextCompanyNameInput === undefined
+      ? currentProvider.company_name || currentProvider.full_name
+      : normalizeOptionalText(nextCompanyNameInput);
   const nextFullName =
     nextFullNameInput === undefined
-      ? currentProvider.full_name
+      ? nextCompanyName || currentProvider.full_name
       : normalizeOptionalText(nextFullNameInput);
   const nextEmail =
     nextEmailInput === undefined ? currentProvider.email : normalizeEmail(nextEmailInput);
+  const nextSiret =
+    readPayloadValue(payload, ["siret"]) === undefined
+      ? currentProvider.siret
+      : validateOptionalSiret(readPayloadValue(payload, ["siret"]));
   const nextProviderStatus = validateProviderStatus(
     payload.provider_status ?? payload.providerStatus ?? currentProvider.provider_status
   );
@@ -712,6 +906,10 @@ export const updateProviderFromAdmin = async (providerId, payload = {}) => {
     throw new HttpError(400, "L'email du prestataire est obligatoire.");
   }
 
+  if (!nextCompanyName) {
+    throw new HttpError(400, "Le nom de la societe est obligatoire.");
+  }
+
   if (nextEmail !== currentProvider.email) {
     const existingUser = await query(
       "SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1",
@@ -723,28 +921,43 @@ export const updateProviderFromAdmin = async (providerId, payload = {}) => {
     }
   }
 
+  if (nextSiret && nextSiret !== currentProvider.siret) {
+    const existingSiret = await query(
+      "SELECT id FROM users WHERE siret = $1 AND id <> $2 AND account_role = 'provider' LIMIT 1",
+      [nextSiret, providerId]
+    );
+
+    if (existingSiret.rows[0]) {
+      throw new HttpError(409, "Un compte prestataire avec ce SIRET existe deja.");
+    }
+  }
+
   validateProviderPassword(nextPassword, { required: false });
 
   await query(
     `
       UPDATE users
       SET full_name = $2,
-          first_name = $3,
-          last_name = $4,
-          email = $5,
-          password_hash = COALESCE($6, password_hash),
-          provider_status = $7,
-          phone = $8,
-          country = $9,
-          address = $10,
-          postal_code = $11,
-          city = $12,
+          company_name = $3,
+          siret = $4,
+          first_name = $5,
+          last_name = $6,
+          email = $7,
+          password_hash = COALESCE($8, password_hash),
+          provider_status = $9,
+          phone = $10,
+          country = $11,
+          address = $12,
+          postal_code = $13,
+          city = $14,
           updated_at = NOW()
       WHERE id = $1
     `,
     [
       providerId,
       nextFullName,
+      nextCompanyName,
+      nextSiret,
       nextFirstName,
       nextLastName,
       nextEmail,
@@ -777,6 +990,19 @@ export const requestProviderPasswordResetFromAdmin = async (
 
   return requestPasswordResetForUser(providerId, {
     requestedByUserId,
+    purpose: "password_reset",
+  });
+};
+
+export const requestProviderInvitationFromAdmin = async (
+  providerId,
+  requestedByUserId
+) => {
+  const provider = await ensureProviderExists(providerId);
+
+  return requestPasswordResetForUser(providerId, {
+    requestedByUserId,
+    purpose: provider.provider_status === "invited" ? "activation" : "password_reset",
   });
 };
 

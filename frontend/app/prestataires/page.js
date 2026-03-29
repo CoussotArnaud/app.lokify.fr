@@ -1,56 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/app-shell";
 import DataTable from "../../components/data-table";
+import MetricCard from "../../components/metric-card";
+import ModalShell from "../../components/modal-shell";
 import Panel from "../../components/panel";
 import StatusPill from "../../components/status-pill";
 import { apiRequest } from "../../lib/api";
+import { isValidSiret, normalizeSiret } from "../../lib/siret";
+import {
+  formatAdminDateTime,
+  getProviderStatusMeta,
+  getSaasLifecycleMeta,
+  getSubscriptionStatusMeta,
+} from "../../lib/provider-admin";
 
-const emptyProviderForm = {
-  full_name: "",
+const initialCreateForm = {
+  first_name: "",
+  last_name: "",
+  company_name: "",
+  siret: "",
+  commercial_name: "",
+  address: "",
+  postal_code: "",
+  city: "",
+  ape_code: "",
+  siren: "",
   email: "",
-  password: "",
-  provider_status: "active",
-  billing: {
-    planId: "essential",
-    subscriptionStatus: "inactive",
-    subscriptionStartAt: "",
-    subscriptionEndAt: "",
-    cancelAtPeriodEnd: false,
-  },
+  phone: "",
 };
 
-const providerStatusTone = {
-  active: "success",
-  blocked: "danger",
-};
-
-const subscriptionStatusTone = {
-  inactive: "neutral",
-  active: "success",
-  trial: "info",
-  past_due: "warning",
-  canceled: "neutral",
-};
-
-const toDateInputValue = (value) => {
-  if (!value) {
-    return "";
-  }
-
-  return new Date(value).toISOString().slice(0, 10);
-};
-
-export default function ProvidersPage() {
+function ProvidersPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [providers, setProviders] = useState([]);
   const [metrics, setMetrics] = useState(null);
-  const [editingProviderId, setEditingProviderId] = useState(null);
-  const [form, setForm] = useState(emptyProviderForm);
   const [feedback, setFeedback] = useState(null);
+  const [createForm, setCreateForm] = useState(initialCreateForm);
+  const isCreateModalOpen = searchParams.get("mode") === "create";
 
   const loadProviders = async () => {
     setLoading(true);
@@ -70,65 +63,40 @@ export default function ProvidersPage() {
     loadProviders();
   }, []);
 
-  const updateBillingField = (field, value) => {
-    setForm((current) => ({
+  const closeCreateModal = () => {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete("mode");
+    setCreateForm(initialCreateForm);
+    router.replace(
+      nextSearchParams.toString() ? `/prestataires?${nextSearchParams.toString()}` : "/prestataires"
+    );
+  };
+
+  const updateCreateField = (field, value) => {
+    setCreateForm((current) => ({
       ...current,
-      billing: {
-        ...current.billing,
-        [field]: value,
-      },
+      [field]: value,
     }));
   };
 
-  const resetForm = () => {
-    setEditingProviderId(null);
-    setForm(emptyProviderForm);
-  };
-
-  const startEditing = (provider) => {
-    setEditingProviderId(provider.id);
-    setForm({
-      full_name: provider.full_name,
-      email: provider.email,
-      password: "",
-      provider_status: provider.provider_status,
-      billing: {
-        planId: provider.subscription?.lokifyPlanId || "essential",
-        subscriptionStatus: provider.subscription?.lokifySubscriptionStatus || "inactive",
-        subscriptionStartAt: toDateInputValue(provider.subscription?.lokifySubscriptionStartAt),
-        subscriptionEndAt: toDateInputValue(provider.subscription?.lokifySubscriptionEndAt),
-        cancelAtPeriodEnd: Boolean(provider.subscription?.cancelAtPeriodEnd),
-      },
-    });
-    setFeedback(null);
-  };
-
-  const handleSubmit = async (event) => {
+  const handleCreateProvider = async (event) => {
     event.preventDefault();
     setSaving(true);
     setFeedback(null);
 
     try {
-      if (editingProviderId) {
-        await apiRequest(`/admin/providers/${editingProviderId}`, {
-          method: "PUT",
-          body: form,
-        });
-      } else {
-        await apiRequest("/admin/providers", {
-          method: "POST",
-          body: form,
-        });
+      if (!isValidSiret(createForm.siret)) {
+        throw new Error("Le numero de SIRET est invalide.");
       }
 
-      await loadProviders();
-      resetForm();
-      setFeedback({
-        type: "success",
-        message: editingProviderId
-          ? "Le prestataire a ete mis a jour."
-          : "Le prestataire a ete cree.",
+      const response = await apiRequest("/admin/providers", {
+        method: "POST",
+        body: createForm,
       });
+
+      await loadProviders();
+      setCreateForm(initialCreateForm);
+      router.push(`/abonnements/${response.provider.id}?created=1`);
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
     } finally {
@@ -137,7 +105,10 @@ export default function ProvidersPage() {
   };
 
   const handleDelete = async (providerId) => {
-    const confirmed = typeof window === "undefined" ? true : window.confirm("Supprimer ce prestataire et ses donnees ?");
+    const confirmed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm("Supprimer ce prestataire et ses donnees ?");
 
     if (!confirmed) {
       return;
@@ -150,11 +121,6 @@ export default function ProvidersPage() {
         method: "DELETE",
       });
       await loadProviders();
-
-      if (editingProviderId === providerId) {
-        resetForm();
-      }
-
       setFeedback({
         type: "success",
         message: "Le prestataire a ete supprime.",
@@ -170,10 +136,10 @@ export default function ProvidersPage() {
         <div className="page-header">
           <div>
             <p className="eyebrow">Super admin</p>
-            <h3>Gestion des prestataires, de leurs acces et de leurs abonnements Lokify.</h3>
+            <h3>Gestion centralisee des prestataires et de leur activation Lokify.</h3>
             <p>
-              Chaque prestataire reste strictement isole. Les clients finaux et reservations
-              restent attaches a leur espace respectif.
+              La creation se fait maintenant via le bouton global + Prestataire, puis l&apos;activation
+              est envoyee depuis la fiche du compte pour garder un flux propre et securise.
             </p>
           </div>
         </div>
@@ -184,228 +150,297 @@ export default function ProvidersPage() {
           </p>
         ) : null}
 
-        <section className="detail-grid">
-          <article className="detail-card">
-            <strong>{metrics?.totalProviders || 0}</strong>
-            <span className="muted-text">prestataire(s)</span>
-          </article>
-          <article className="detail-card">
-            <strong>{metrics?.activeProviders || 0}</strong>
-            <span className="muted-text">compte(s) actifs</span>
-          </article>
-          <article className="detail-card">
-            <strong>{metrics?.activeSubscriptions || 0}</strong>
-            <span className="muted-text">abonnement(s) actifs</span>
-          </article>
-          <article className="detail-card">
-            <strong>{metrics?.providerStripeConfigured || 0}</strong>
-            <span className="muted-text">Stripe prestataire configure</span>
-          </article>
+        <section className="metric-grid">
+          <MetricCard
+            icon="users"
+            label="Prestataires"
+            value={metrics?.totalProviders || 0}
+            helper="Comptes prestataires actuellement suivis."
+            tone="info"
+          />
+          <MetricCard
+            icon="shield"
+            label="Actifs"
+            value={metrics?.activeProvidersCurrently || 0}
+            helper="Prestataires deja actifs sur la plateforme."
+            tone="success"
+          />
+          <MetricCard
+            icon="mail"
+            label="Invitations en attente"
+            value={metrics?.invitedProviders || 0}
+            helper="Comptes invites n'ayant pas encore active leur acces."
+            tone="warning"
+          />
+          <MetricCard
+            icon="bill"
+            label="Abonnements actifs"
+            value={metrics?.activeSubscriptions || 0}
+            helper="Prestataires avec abonnement Lokify en cours."
+            tone="info"
+          />
         </section>
 
-        <section className="split-layout split-2-1">
-          <Panel
-            title="Prestataires"
-            description="Vue globale des comptes SaaS, de leur statut et de leur volume de donnees."
-          >
-            <DataTable
-              rows={providers}
-              emptyMessage={loading ? "Chargement..." : "Aucun prestataire."}
-              columns={[
-                {
-                  key: "identity",
-                  label: "Prestataire",
-                  render: (row) => (
+        <Panel
+          title="Prestataires"
+          description="Vue globale des comptes, de leur statut d'activation et de leur abonnement Lokify."
+        >
+          <DataTable
+            rows={providers}
+            emptyMessage={loading ? "Chargement..." : "Aucun prestataire."}
+            columns={[
+              {
+                key: "identity",
+                label: "Prestataire",
+                render: (row) => (
+                  <div className="table-title">
+                    <strong>{row.company_name || row.full_name}</strong>
+                    <small>{row.email}</small>
+                    <small>{row.phone || "Telephone non renseigne"}</small>
+                  </div>
+                ),
+              },
+              {
+                key: "provider_status",
+                label: "Compte",
+                render: (row) => {
+                  const providerStatusMeta = getProviderStatusMeta(row.provider_status);
+
+                  return (
                     <div className="table-title">
-                      <strong>{row.full_name}</strong>
-                      <small>{row.email}</small>
+                      <StatusPill tone={providerStatusMeta.tone}>
+                        {providerStatusMeta.label}
+                      </StatusPill>
+                      <small>
+                        {row.security?.lastInvitationSentAt
+                          ? `Dernier lien ${formatAdminDateTime(row.security.lastInvitationSentAt)}`
+                          : row.provider_status === "invited"
+                            ? "Invitation non envoyee"
+                            : "Aucun envoi recent"}
+                      </small>
                     </div>
-                  ),
+                  );
                 },
-                {
-                  key: "provider_status",
-                  label: "Compte",
-                  render: (row) => (
-                    <StatusPill tone={providerStatusTone[row.provider_status] || "neutral"}>
-                      {row.provider_status}
-                    </StatusPill>
-                  ),
-                },
-                {
-                  key: "subscription",
-                  label: "Abonnement",
-                  render: (row) => (
+              },
+              {
+                key: "subscription",
+                label: "Abonnement",
+                render: (row) => {
+                  const lifecycleMeta = getSaasLifecycleMeta(row.subscription?.saasLifecycleStatus);
+                  const subscriptionMeta = getSubscriptionStatusMeta(
+                    row.subscription?.lokifySubscriptionStatus
+                  );
+
+                  return (
                     <div className="table-title">
-                      <strong>{row.subscription?.lokifyPlanName || "Aucun"}</strong>
-                      <small>{row.subscription?.lokifySubscriptionStatus || "inactive"}</small>
+                      <strong>{row.subscription?.lokifyPlanName || "Aucune"}</strong>
+                      <small>
+                        {row.subscription?.lokifyPlanName
+                          ? lifecycleMeta.label
+                          : subscriptionMeta.label}
+                      </small>
                     </div>
-                  ),
+                  );
                 },
-                {
-                  key: "metrics",
-                  label: "Donnees",
-                  render: (row) =>
-                    `${row.metrics?.totalClients || 0} clients / ${row.metrics?.totalReservations || 0} reservations`,
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  render: (row) => (
-                    <div className="row-actions">
-                      <button type="button" className="button ghost" onClick={() => startEditing(row)}>
-                        Modifier
-                      </button>
-                      <button type="button" className="button ghost" onClick={() => handleDelete(row.id)}>
-                        Supprimer
-                      </button>
-                    </div>
-                  ),
-                },
-              ]}
-            />
-          </Panel>
+              },
+              {
+                key: "metrics",
+                label: "Donnees",
+                render: (row) => (
+                  <div className="table-title">
+                    <strong>{row.metrics?.totalClients || 0} clients</strong>
+                    <small>{row.metrics?.totalReservations || 0} reservations</small>
+                  </div>
+                ),
+              },
+              {
+                key: "actions",
+                label: "Actions",
+                render: (row) => (
+                  <div className="row-actions table-actions-compact">
+                    <Link href={`/abonnements/${row.id}`} className="button ghost">
+                      Fiche
+                    </Link>
+                    <button type="button" className="button ghost" onClick={() => handleDelete(row.id)}>
+                      Supprimer
+                    </button>
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </Panel>
 
-          <Panel
-            title={editingProviderId ? "Modifier un prestataire" : "Creer un prestataire"}
-            description="Le mot de passe est obligatoire a la creation. Laissez-le vide en edition pour le conserver."
-          >
-            <form className="form-grid" onSubmit={handleSubmit}>
-              <div className="field">
-                <label htmlFor="provider-name">Nom</label>
-                <input
-                  id="provider-name"
-                  value={form.full_name}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, full_name: event.target.value }))
-                  }
-                  placeholder="Ex. Studio Event"
-                  required
-                />
-              </div>
+        <ModalShell
+          open={isCreateModalOpen}
+          onClose={closeCreateModal}
+          title="Creer un prestataire"
+          description="Creation d'un compte invite sans mot de passe initial. Le prestataire definira ensuite son mot de passe via un lien securise."
+          size="xl"
+        >
+          <form className="form-grid two-columns" onSubmit={handleCreateProvider}>
+            <div className="field">
+              <label htmlFor="provider-first-name">Prenom</label>
+              <input
+                id="provider-first-name"
+                value={createForm.first_name}
+                onChange={(event) => updateCreateField("first_name", event.target.value)}
+                placeholder="Ex. Marie"
+              />
+            </div>
 
-              <div className="field">
-                <label htmlFor="provider-email">Email</label>
-                <input
-                  id="provider-email"
-                  type="email"
-                  value={form.email}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, email: event.target.value }))
-                  }
-                  placeholder="contact@studio-event.fr"
-                  required
-                />
-              </div>
+            <div className="field">
+              <label htmlFor="provider-last-name">Nom</label>
+              <input
+                id="provider-last-name"
+                value={createForm.last_name}
+                onChange={(event) => updateCreateField("last_name", event.target.value)}
+                placeholder="Ex. Dupont"
+              />
+            </div>
 
-              <div className="field">
-                <label htmlFor="provider-password">Mot de passe</label>
-                <input
-                  id="provider-password"
-                  type="password"
-                  value={form.password}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, password: event.target.value }))
-                  }
-                  placeholder={editingProviderId ? "Laisser vide pour conserver" : "Mot de passe"}
-                />
-              </div>
+            <div className="field field-span-2">
+              <label htmlFor="provider-company-name">Nom de la societe</label>
+              <input
+                id="provider-company-name"
+                value={createForm.company_name}
+                onChange={(event) => updateCreateField("company_name", event.target.value)}
+                placeholder="Ex. Studio Horizon"
+                required
+              />
+            </div>
 
-              <div className="field">
-                <label htmlFor="provider-status">Statut compte</label>
-                <select
-                  id="provider-status"
-                  value={form.provider_status}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, provider_status: event.target.value }))
-                  }
-                >
-                  <option value="active">Actif</option>
-                  <option value="blocked">Bloque</option>
-                </select>
-              </div>
+            <div className="field field-span-2">
+              <label htmlFor="provider-siret">Numero de SIRET</label>
+              <input
+                id="provider-siret"
+                value={createForm.siret}
+                onChange={(event) => updateCreateField("siret", event.target.value)}
+                placeholder="123 456 789 00012"
+                inputMode="numeric"
+                required
+              />
+              <p className="field-helper">
+                Le SIRET sera verifie pendant la creation du compte et enrichira automatiquement la
+                fiche si l'etablissement est reconnu.
+              </p>
+            </div>
 
-              <div className="field">
-                <label htmlFor="provider-plan">Formule</label>
-                <select
-                  id="provider-plan"
-                  value={form.billing.planId}
-                  onChange={(event) => updateBillingField("planId", event.target.value)}
-                >
-                  <option value="essential">Essentiel</option>
-                  <option value="pro">Pro</option>
-                  <option value="premium">Premium</option>
-                </select>
-              </div>
+            <div className="field field-span-2">
+              <label htmlFor="provider-commercial-name">Nom commercial</label>
+              <input
+                id="provider-commercial-name"
+                value={createForm.commercial_name}
+                onChange={(event) => updateCreateField("commercial_name", event.target.value)}
+                placeholder="Optionnel"
+              />
+            </div>
 
-              <div className="field">
-                <label htmlFor="provider-subscription-status">Statut abonnement</label>
-                <select
-                  id="provider-subscription-status"
-                  value={form.billing.subscriptionStatus}
-                  onChange={(event) => updateBillingField("subscriptionStatus", event.target.value)}
-                >
-                  <option value="inactive">Inactive</option>
-                  <option value="trial">Essai</option>
-                  <option value="active">Active</option>
-                  <option value="past_due">En retard</option>
-                  <option value="canceled">Annulee</option>
-                </select>
-              </div>
+            <div className="field field-span-2">
+              <label htmlFor="provider-address">Adresse</label>
+              <input
+                id="provider-address"
+                value={createForm.address}
+                onChange={(event) => updateCreateField("address", event.target.value)}
+                placeholder="Ex. 18 avenue des Arts"
+              />
+            </div>
 
-              <div className="field">
-                <label htmlFor="provider-start">Debut abonnement</label>
-                <input
-                  id="provider-start"
-                  type="date"
-                  value={form.billing.subscriptionStartAt}
-                  onChange={(event) => updateBillingField("subscriptionStartAt", event.target.value)}
-                />
-              </div>
+            <div className="field">
+              <label htmlFor="provider-postal-code">Code postal</label>
+              <input
+                id="provider-postal-code"
+                value={createForm.postal_code}
+                onChange={(event) => updateCreateField("postal_code", event.target.value)}
+                placeholder="69006"
+              />
+            </div>
 
-              <div className="field">
-                <label htmlFor="provider-end">Fin abonnement</label>
-                <input
-                  id="provider-end"
-                  type="date"
-                  value={form.billing.subscriptionEndAt}
-                  onChange={(event) => updateBillingField("subscriptionEndAt", event.target.value)}
-                />
-              </div>
+            <div className="field">
+              <label htmlFor="provider-city">Ville</label>
+              <input
+                id="provider-city"
+                value={createForm.city}
+                onChange={(event) => updateCreateField("city", event.target.value)}
+                placeholder="Lyon"
+              />
+            </div>
 
-              <label className="detail-card">
-                <strong>Annuler le renouvellement a echeance</strong>
-                <div className="row-actions">
-                  <input
-                    type="checkbox"
-                    checked={form.billing.cancelAtPeriodEnd}
-                    onChange={(event) =>
-                      updateBillingField("cancelAtPeriodEnd", event.target.checked)
-                    }
-                  />
-                  <span className="muted-text">
-                    L'acces est maintenu jusqu'a la fin de la periode payee.
-                  </span>
-                </div>
-              </label>
+            <div className="field">
+              <label htmlFor="provider-ape-code">Code APE / NAF</label>
+              <input
+                id="provider-ape-code"
+                value={createForm.ape_code}
+                onChange={(event) => updateCreateField("ape_code", event.target.value)}
+                placeholder="7729Z"
+              />
+            </div>
 
-              <div className="row-actions">
-                <button type="submit" className="button primary" disabled={saving}>
-                  {saving
-                    ? "Enregistrement..."
-                    : editingProviderId
-                      ? "Mettre a jour"
-                      : "Creer le prestataire"}
-                </button>
-                {editingProviderId ? (
-                  <button type="button" className="button ghost" onClick={resetForm}>
-                    Annuler
-                  </button>
-                ) : null}
-              </div>
-            </form>
-          </Panel>
-        </section>
+            <div className="field">
+              <label htmlFor="provider-siren">SIREN</label>
+              <input
+                id="provider-siren"
+                value={createForm.siren}
+                onChange={(event) => updateCreateField("siren", event.target.value)}
+                placeholder="123456789"
+              />
+            </div>
+
+            <div className="field field-span-2">
+              <label htmlFor="provider-email">Email</label>
+              <input
+                id="provider-email"
+                type="email"
+                value={createForm.email}
+                onChange={(event) => updateCreateField("email", event.target.value)}
+                placeholder="vous@exemple.fr"
+                required
+              />
+            </div>
+
+            <div className="field field-span-2">
+              <label htmlFor="provider-phone">Telephone</label>
+              <input
+                id="provider-phone"
+                value={createForm.phone}
+                onChange={(event) => updateCreateField("phone", event.target.value)}
+                placeholder="Optionnel"
+              />
+            </div>
+
+            <article className="detail-card field-span-2">
+              <strong>Activation securisee</strong>
+              <span className="muted-text">
+                Aucun mot de passe n&apos;est demande a cette etape. Le compte sera cree en statut
+                invite, puis active par email depuis la fiche prestataire.
+              </span>
+            </article>
+
+            <div className="row-actions field-span-2">
+              <button type="submit" className="button primary" disabled={saving}>
+                {saving ? "Creation..." : "Creer le prestataire"}
+              </button>
+              <button type="button" className="button ghost" onClick={closeCreateModal}>
+                Annuler
+              </button>
+            </div>
+          </form>
+        </ModalShell>
       </div>
     </AppShell>
+  );
+}
+
+export default function ProvidersPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="page-stack" />
+        </AppShell>
+      }
+    >
+      <ProvidersPageContent />
+    </Suspense>
   );
 }

@@ -57,11 +57,11 @@ function ResetPasswordContent() {
     <main className="login-page">
       <section className="login-hero">
         <div>
-          <p className="eyebrow">Reinitialisation securisee</p>
-          <h1>Choisissez un nouveau mot de passe Lokify.</h1>
+          <p className="eyebrow">Acces securise</p>
+          <h1>Definissez votre mot de passe Lokify.</h1>
           <p>
-            Le lien recu par email ne revele jamais l&apos;ancien mot de passe. Il sert uniquement
-            a definir un nouveau secret de connexion.
+            Ce lien securise vous permet soit d&apos;activer votre compte, soit de renouveler vos
+            acces sans jamais exposer l&apos;ancien mot de passe.
           </p>
         </div>
       </section>
@@ -70,10 +70,11 @@ function ResetPasswordContent() {
         <div className="login-brand login-brand-card">
           <BrandLogo className="brand-logo-login-main" />
         </div>
-        <p className="eyebrow">Nouveau mot de passe</p>
-        <h2>Mettre a jour mes acces</h2>
+        <p className="eyebrow">Mot de passe</p>
+        <h2>Finaliser mes acces</h2>
         <p className="muted-text">
-          Renseignez un nouveau mot de passe d&apos;au moins 6 caracteres.
+          Renseignez un mot de passe d&apos;au moins 6 caracteres pour activer ou mettre a jour
+          vos acces.
         </p>
 
         <form className="form-grid" onSubmit={handleSubmit}>
