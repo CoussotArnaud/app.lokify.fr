@@ -7,6 +7,7 @@ import {
   requestPasswordReset,
   resetPassword,
 } from "../services/auth.service.js";
+import { updateCurrentUserProfile } from "../services/current-user.service.js";
 
 export const register = asyncHandler(async (req, res) => {
   const response = await registerUser(req.body);
@@ -20,6 +21,11 @@ export const login = asyncHandler(async (req, res) => {
 
 export const me = asyncHandler(async (req, res) => {
   const user = await getCurrentUser(req.user.id, req.authSession);
+  res.json({ user });
+});
+
+export const putMe = asyncHandler(async (req, res) => {
+  const user = await updateCurrentUserProfile(req.user.id, req.body, req.authSession);
   res.json({ user });
 });
 

@@ -8,6 +8,7 @@ import {
   me,
   postResetPassword,
   postVerifySiret,
+  putMe,
   register,
 } from "../controllers/auth.controller.js";
 
@@ -45,5 +46,6 @@ router.post("/forgot-password", passwordResetRateLimit, forgotPassword);
 router.post("/reset-password", passwordResetRateLimit, postResetPassword);
 router.post("/verify-siret", siretVerificationRateLimit, postVerifySiret);
 router.get("/me", authMiddleware, me);
+router.put("/me", authMiddleware, putMe);
 
 export default router;

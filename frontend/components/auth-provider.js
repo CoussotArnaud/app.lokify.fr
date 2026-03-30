@@ -14,11 +14,18 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
 
+  const replaceUser = (nextUser, nextToken = token) => {
+    setUser(nextUser);
+
+    if (nextToken) {
+      saveSession({ token: nextToken, user: nextUser });
+    }
+  };
+
   const refreshUser = async (sessionToken) => {
     const response = await apiRequest("/auth/me", { token: sessionToken });
 
-    setUser(response.user);
-    saveSession({ token: sessionToken, user: response.user });
+    replaceUser(response.user, sessionToken);
     return response.user;
   };
 
@@ -74,6 +81,7 @@ export const AuthProvider = ({ children }) => {
         login: (payload) => authenticate("/auth/login", payload),
         register: (payload) => authenticate("/auth/register", payload),
         refreshUser: () => refreshUser(token),
+        replaceUser,
         logout,
       }}
     >
