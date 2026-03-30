@@ -13,6 +13,7 @@ import ToggleSwitch from "../../components/toggle-switch";
 import useLokifyWorkspace from "../../hooks/use-lokify-workspace";
 import { apiRequest } from "../../lib/api";
 import { formatCurrency } from "../../lib/date";
+import { consumeFlashMessage } from "../../lib/flash-message";
 import { buildStorefrontUrl } from "../../lib/storefront";
 
 const UNCATEGORIZED_CATEGORY_ID = "__uncategorized__";
@@ -165,6 +166,22 @@ export default function CataloguePage() {
   const [isBatching, setIsBatching] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
+
+  useEffect(() => {
+    const flashMessage = consumeFlashMessage();
+    if (!flashMessage) {
+      return;
+    }
+
+    if (flashMessage.type === "error") {
+      setError(flashMessage.message);
+      setFeedback("");
+      return;
+    }
+
+    setFeedback(flashMessage.message);
+    setError("");
+  }, []);
 
   const categoryRows = useMemo(() => buildCategoryRows(workspace.categories, workspace.products), [workspace.categories, workspace.products]);
   useEffect(() => {

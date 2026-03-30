@@ -8,6 +8,7 @@ import AppShell from "../../../../components/app-shell";
 import Panel from "../../../../components/panel";
 import StatusPill from "../../../../components/status-pill";
 import useLokifyWorkspace from "../../../../hooks/use-lokify-workspace";
+import { setFlashMessage } from "../../../../lib/flash-message";
 import { slugifyLabel } from "../../../../lib/workspace-store";
 
 const buildDefaultForm = () => ({
@@ -27,6 +28,15 @@ function CategoryEditorPageContent() {
   const editingSlug = searchParams.get("category") || "";
   const editingCategory = workspace.catalogCategories.find((category) => category.slug === editingSlug) || null;
   const categoryProducts = workspace.products.filter((product) => product.categorySlug === editingSlug);
+  const isSubmitting = workspace.mutating;
+
+  const getCategoryErrorMessage = (submissionError) => {
+    if (submissionError?.code === "network_error") {
+      return "La categorie n'a pas pu etre enregistree. Verifiez la connexion puis reessayez.";
+    }
+
+    return submissionError?.message || "La categorie n'a pas pu etre enregistree.";
+  };
 
   useEffect(() => {
     if (!editingCategory) {
@@ -61,13 +71,15 @@ function CategoryEditorPageContent() {
         inspection_enabled: false,
         status: "active",
       });
-      setFeedback(editingSlug ? "Categorie mise a jour." : "Categorie creee.");
-
       if (!editingSlug) {
-        router.replace(`/catalogue/categories/nouveau?category=${slug}`);
+        setFlashMessage({ type: "success", message: "Categorie creee." });
+        router.replace("/catalogue");
+        return;
       }
+
+      setFeedback("Categorie mise a jour.");
     } catch (submissionError) {
-      setError(submissionError.message);
+      setError(getCategoryErrorMessage(submissionError));
     }
   };
 
@@ -81,10 +93,10 @@ function CategoryEditorPageContent() {
 
     try {
       await workspace.deleteCatalogCategory(editingSlug);
-      router.replace("/catalogue/categories/nouveau");
-      setFeedback("Categorie supprimee.");
+      setFlashMessage({ type: "success", message: "Categorie supprimee." });
+      router.replace("/catalogue");
     } catch (submissionError) {
-      setError(submissionError.message);
+      setError(getCategoryErrorMessage(submissionError));
     }
   };
 
@@ -201,11 +213,11 @@ function CategoryEditorPageContent() {
               </div>
 
               <div className="row-actions form-actions-bar">
-                <button type="submit" className="button primary" disabled={workspace.mutating}>
-                  {workspace.mutating ? "Enregistrement..." : editingSlug ? "Sauvegarder" : "Creer la categorie"}
+                <button type="submit" className="button primary" disabled={isSubmitting}>
+                  {isSubmitting ? "Enregistrement..." : editingSlug ? "Sauvegarder" : "Creer la categorie"}
                 </button>
                 {editingSlug ? (
-                  <button type="button" className="button ghost" onClick={handleDelete} disabled={workspace.mutating}>
+                  <button type="button" className="button ghost" onClick={handleDelete} disabled={isSubmitting}>
                     Supprimer
                   </button>
                 ) : null}

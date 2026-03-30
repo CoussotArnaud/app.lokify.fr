@@ -1,4 +1,11 @@
 export const errorHandler = (error, _req, res, _next) => {
+  if (error.type === "entity.too.large") {
+    return res.status(413).json({
+      message: "Le fichier ou les donnees envoyees depassent la taille maximale autorisee.",
+      code: "request_entity_too_large",
+    });
+  }
+
   if (error.code === "23505") {
     return res.status(409).json({ message: "Cette ressource existe deja." });
   }

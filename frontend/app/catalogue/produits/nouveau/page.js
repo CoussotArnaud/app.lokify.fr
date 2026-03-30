@@ -10,6 +10,15 @@ import SecondaryNav from "../../../../components/secondary-nav";
 import StatusPill from "../../../../components/status-pill";
 import useLokifyWorkspace from "../../../../hooks/use-lokify-workspace";
 import {
+  MAX_CATALOG_IMAGE_SIZE_BYTES,
+  MAX_CATALOG_ITEM_PHOTOS,
+  MIN_CATALOG_IMAGE_HEIGHT,
+  MIN_CATALOG_IMAGE_WIDTH,
+  formatCatalogImageSize,
+  prepareCatalogImage,
+} from "../../../../lib/catalog-image";
+import { consumeFlashMessage, setFlashMessage } from "../../../../lib/flash-message";
+import {
   readCatalogDraft,
   removeCatalogDraft,
   saveCatalogDraft,
@@ -136,6 +145,78 @@ const withStableIds = (entries = [], prefix) =>
     id: entry.id || createLocalId(prefix),
   }));
 
+const buildItemProfilePayload = (form, selectedCategory, normalizedTaxRateId, photos) => ({
+  internal_description: form.internal_description,
+  tax_rate_id: normalizedTaxRateId,
+  vat: normalizedTaxRateId ? null : null,
+  serial_tracking: form.serial_tracking,
+  assignment_order: form.assignment_order,
+  availability_note: form.availability_note,
+  category_slug: form.category_slug || null,
+  category_name: form.category_name || selectedCategory?.name || null,
+  subcategory: form.subcategory,
+  features: form.features,
+  custom_filters: form.custom_filters,
+  documents: form.documents.filter(Boolean),
+  questionnaire: form.questionnaire,
+  inspection_template: form.inspection_template,
+  price_weekend: Number(form.price_weekend || 0),
+  price_week: Number(form.price_week || 0),
+  price_custom: {
+    label: form.price_custom_label,
+    amount: form.price_custom_amount === "" ? null : Number(form.price_custom_amount),
+  },
+  online_visible: form.online_visible,
+  is_active: form.is_active,
+  reservable: form.reservable,
+  public_name: form.public_name || form.name,
+  public_description: form.public_description,
+  long_description: form.long_description,
+  photos,
+  related_enabled: form.related_enabled,
+  related_product_ids: form.related_product_ids,
+  related_sort_note: form.related_sort_note,
+  catalog_mode: form.catalog_mode,
+  sku: form.sku || "",
+  options: form.options.filter((option) => option.name),
+  variants: form.variants
+    .filter((variant) => variant.name)
+    .map((variant) => ({
+      ...variant,
+      stock: variant.stock === "" ? null : Number(variant.stock),
+    })),
+});
+
+const buildImageUploadErrorMessage = (submissionError) => {
+  if (!submissionError) {
+    return "L'image n'a pas pu etre envoyee.";
+  }
+
+  if (
+    submissionError.code === "catalog_image_too_large" ||
+    submissionError.code === "request_entity_too_large" ||
+    submissionError.statusCode === 413
+  ) {
+    return `L'image depasse la taille maximale autorisee de ${Math.round(
+      MAX_CATALOG_IMAGE_SIZE_BYTES / (1024 * 1024)
+    )} Mo.`;
+  }
+
+  if (submissionError.code === "catalog_image_too_small") {
+    return "L'image est trop petite pour etre exploitable.";
+  }
+
+  if (submissionError.code === "catalog_image_dimensions") {
+    return `L'image doit mesurer au moins ${MIN_CATALOG_IMAGE_WIDTH} x ${MIN_CATALOG_IMAGE_HEIGHT} px.`;
+  }
+
+  if (submissionError.code === "network_error") {
+    return "L'image n'a pas pu etre envoyee. Verifiez la connexion ou reessayez avec un fichier plus leger.";
+  }
+
+  return submissionError.message || "L'image n'a pas pu etre envoyee.";
+};
+
 function ProductEditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -145,6 +226,8 @@ function ProductEditorPageContent() {
   const [error, setError] = useState("");
   const [autosaveMessage, setAutosaveMessage] = useState("");
   const [form, setForm] = useState(buildEmptyForm());
+  const [pendingPhotos, setPendingPhotos] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const initializedKeyRef = useRef("");
   const editingId = searchParams.get("product") || "";
   const preselectedCategorySlug = searchParams.get("category") || "";
@@ -175,6 +258,22 @@ function ProductEditorPageContent() {
     !form.tax_rate_id && form.vat !== null && form.vat !== undefined ? `TVA actuelle ${form.vat}%` : "";
 
   useEffect(() => {
+    const flashMessage = consumeFlashMessage();
+    if (!flashMessage) {
+      return;
+    }
+
+    if (flashMessage.type === "error") {
+      setError(flashMessage.message);
+      setFeedback("");
+      return;
+    }
+
+    setFeedback(flashMessage.message);
+    setError("");
+  }, []);
+
+  useEffect(() => {
     if (workspace.loading) {
       return;
     }
@@ -203,6 +302,7 @@ function ProductEditorPageContent() {
 
     initializedKeyRef.current = nextKey;
     setForm(nextForm);
+    setPendingPhotos([]);
   }, [draftKey, preselectedCategory, product, workspace.defaultTaxRate, workspace.loading]);
 
   useEffect(() => {
@@ -223,21 +323,53 @@ function ProductEditorPageContent() {
   };
 
   const addPhotos = async (files) => {
-    const nextPhotos = await Promise.all(
-      Array.from(files || []).map(
-        (file) =>
-          new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ""));
-            reader.readAsDataURL(file);
-          })
-      )
-    );
+    const selectedFiles = Array.from(files || []);
+    const remainingSlots =
+      MAX_CATALOG_ITEM_PHOTOS - (form.photos.length + pendingPhotos.length);
 
-    setForm((current) => ({
-      ...current,
-      photos: [...current.photos, ...nextPhotos].slice(0, 8),
-    }));
+    if (!selectedFiles.length) {
+      return;
+    }
+
+    if (remainingSlots <= 0) {
+      setError(
+        `Vous ne pouvez pas ajouter plus de ${MAX_CATALOG_ITEM_PHOTOS} images sur ce produit.`
+      );
+      setFeedback("");
+      return;
+    }
+
+    const nextPendingPhotos = [];
+    const messages = [];
+
+    for (const file of selectedFiles.slice(0, remainingSlots)) {
+      try {
+        const preparedPhoto = await prepareCatalogImage(file);
+        nextPendingPhotos.push(preparedPhoto);
+      } catch (submissionError) {
+        messages.push(buildImageUploadErrorMessage(submissionError));
+      }
+    }
+
+    if (selectedFiles.length > remainingSlots) {
+      messages.push(
+        `Seules ${MAX_CATALOG_ITEM_PHOTOS} images peuvent etre conservees sur une fiche produit.`
+      );
+    }
+
+    if (nextPendingPhotos.length) {
+      setPendingPhotos((current) => [...current, ...nextPendingPhotos]);
+      setFeedback(
+        `${nextPendingPhotos.length} image(s) prete(s) a etre envoyee(s) lors de l'enregistrement.`
+      );
+      setError(messages[0] || "");
+      return;
+    }
+
+    if (messages.length) {
+      setError(messages[0]);
+      setFeedback("");
+    }
   };
 
   const addOption = () => {
@@ -294,6 +426,7 @@ function ProductEditorPageContent() {
 
     setError("");
     setFeedback("");
+    setIsSubmitting(true);
 
     try {
       const selectedCategory = categories.find((category) => category.slug === form.category_slug);
@@ -313,57 +446,78 @@ function ProductEditorPageContent() {
       const normalizedTaxRateId = availableTaxRates.some((taxRate) => taxRate.id === form.tax_rate_id)
         ? form.tax_rate_id
         : null;
-      await workspace.saveItemProfile(savedProductId, {
-        internal_description: form.internal_description,
-        tax_rate_id: normalizedTaxRateId,
-        vat: normalizedTaxRateId ? null : null,
-        serial_tracking: form.serial_tracking,
-        assignment_order: form.assignment_order,
-        availability_note: form.availability_note,
-        category_slug: form.category_slug || null,
-        category_name: form.category_name || selectedCategory?.name || null,
-        subcategory: form.subcategory,
-        features: form.features,
-        custom_filters: form.custom_filters,
-        documents: form.documents.filter(Boolean),
-        questionnaire: form.questionnaire,
-        inspection_template: form.inspection_template,
-        price_weekend: Number(form.price_weekend || 0),
-        price_week: Number(form.price_week || 0),
-        price_custom: {
-          label: form.price_custom_label,
-          amount: form.price_custom_amount === "" ? null : Number(form.price_custom_amount),
-        },
-        online_visible: form.online_visible,
-        is_active: form.is_active,
-        reservable: form.reservable,
-        public_name: form.public_name || form.name,
-        public_description: form.public_description,
-        long_description: form.long_description,
-        photos: form.photos,
-        related_enabled: form.related_enabled,
-        related_product_ids: form.related_product_ids,
-        related_sort_note: form.related_sort_note,
-        catalog_mode: form.catalog_mode,
-        sku: form.sku || "",
-        options: form.options.filter((option) => option.name),
-        variants: form.variants
-          .filter((variant) => variant.name)
-          .map((variant) => ({
-            ...variant,
-            stock: variant.stock === "" ? null : Number(variant.stock),
-          })),
-      });
+      await workspace.saveItemProfile(
+        savedProductId,
+        buildItemProfilePayload(form, selectedCategory, normalizedTaxRateId, form.photos)
+      );
+
+      let uploadedPhotos = form.photos;
+      const uploadFailures = [];
+
+      for (const pendingPhoto of pendingPhotos) {
+        try {
+          const uploadResponse = await workspace.uploadCatalogItemPhoto(savedProductId, {
+            data_url: pendingPhoto.dataUrl,
+            file_name: pendingPhoto.fileName,
+          });
+
+          uploadedPhotos = Array.isArray(uploadResponse?.itemProfile?.photos)
+            ? uploadResponse.itemProfile.photos
+            : uploadedPhotos;
+        } catch (submissionError) {
+          uploadFailures.push({
+            id: pendingPhoto.id,
+            message: buildImageUploadErrorMessage(submissionError),
+          });
+        }
+      }
+
+      if (pendingPhotos.length) {
+        setForm((current) => ({
+          ...current,
+          photos: uploadedPhotos,
+        }));
+        setPendingPhotos((current) =>
+          current.filter((photo) =>
+            uploadFailures.some((failure) => failure.id === photo.id)
+          )
+        );
+      }
 
       removeCatalogDraft(draftKey);
       setAutosaveMessage("Brouillon synchronise.");
-      setFeedback(editingId ? "Produit mis a jour." : "Produit cree.");
 
-      if (!editingId && savedProductId) {
-        router.replace(`/catalogue/produits/nouveau?product=${savedProductId}&mode=edit`);
+      if (uploadFailures.length) {
+        const uploadErrorMessage =
+          uploadFailures.length === 1
+            ? uploadFailures[0].message
+            : "Certaines images n'ont pas pu etre envoyees.";
+
+        if (!editingId) {
+          setFlashMessage({
+            type: "error",
+            message: `Produit cree, mais ${uploadErrorMessage.charAt(0).toLowerCase()}${uploadErrorMessage.slice(1)}`,
+          });
+          router.replace(`/catalogue/produits/nouveau?product=${savedProductId}&mode=edit`);
+          return;
+        }
+
+        setFeedback("Produit enregistre.");
+        setError(uploadErrorMessage);
+        return;
       }
+
+      if (!editingId) {
+        setFlashMessage({ type: "success", message: "Produit cree." });
+        router.replace("/catalogue");
+        return;
+      }
+
+      setFeedback("Produit mis a jour.");
     } catch (submissionError) {
       setError(submissionError.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -941,8 +1095,15 @@ function ProductEditorPageContent() {
                         accept="image/*"
                         multiple
                         hidden
-                        onChange={(event) => addPhotos(event.target.files)}
+                        onChange={(event) => {
+                          void addPhotos(event.target.files);
+                          event.target.value = "";
+                        }}
                       />
+                      <p className="field-hint">
+                        JPG, PNG ou WebP. Taille max {Math.round(MAX_CATALOG_IMAGE_SIZE_BYTES / (1024 * 1024))} Mo.
+                        Dimensions minimales {MIN_CATALOG_IMAGE_WIDTH} x {MIN_CATALOG_IMAGE_HEIGHT} px.
+                      </p>
 
                       <div className="thumbnail-grid">
                         {form.photos.map((photo, index) => (
@@ -964,6 +1125,30 @@ function ProductEditorPageContent() {
                             </button>
                           </div>
                         ))}
+                        {pendingPhotos.map((photo) => (
+                          <div key={photo.id} className="thumbnail-card">
+                            <div className="thumbnail-media">
+                              <img src={photo.previewUrl} alt={photo.fileName} />
+                            </div>
+                            <div className="stack">
+                              <span className="muted-text">
+                                {photo.width} x {photo.height} px - {formatCatalogImageSize(photo.sizeBytes)}
+                              </span>
+                              <span className="muted-text">En attente d'envoi</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="button subtle"
+                              onClick={() =>
+                                setPendingPhotos((current) =>
+                                  current.filter((entry) => entry.id !== photo.id)
+                                )
+                              }
+                            >
+                              Retirer
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -972,8 +1157,8 @@ function ProductEditorPageContent() {
 
               <div className="row-actions form-actions-bar">
                 {!isReadOnly ? (
-                  <button type="submit" className="button primary" disabled={workspace.mutating}>
-                    {workspace.mutating ? "Enregistrement..." : editingId ? "Sauvegarder le produit" : "Creer le produit"}
+                  <button type="submit" className="button primary" disabled={workspace.mutating || isSubmitting}>
+                    {workspace.mutating || isSubmitting ? "Enregistrement..." : editingId ? "Sauvegarder le produit" : "Creer le produit"}
                   </button>
                 ) : null}
                 <Link href="/catalogue" className="button ghost">

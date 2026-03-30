@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { query } from "../src/config/db.js";
 import {
+  appendItemProfilePhoto,
   listCatalogCategories,
   listCatalogTaxRates,
   listItemProfiles,
@@ -31,6 +32,23 @@ const getFirstItemIds = async (userId, limit = 2) => {
     [userId, limit]
   );
   return rows.map((row) => row.id);
+};
+
+const buildPngDataUrl = (width, height, size = 12 * 1024) => {
+  const buffer = Buffer.alloc(size, 0);
+  buffer.writeUInt32BE(0x89504e47, 0);
+  buffer.writeUInt32BE(0x0d0a1a0a, 4);
+  buffer.writeUInt32BE(13, 8);
+  buffer.write("IHDR", 12, "ascii");
+  buffer.writeUInt32BE(width, 16);
+  buffer.writeUInt32BE(height, 20);
+  buffer.writeUInt8(8, 24);
+  buffer.writeUInt8(2, 25);
+  buffer.writeUInt8(0, 26);
+  buffer.writeUInt8(0, 27);
+  buffer.writeUInt8(0, 28);
+
+  return `data:image/png;base64,${buffer.toString("base64")}`;
 };
 
 test("catalog categories are persisted and upserted by slug", async () => {
@@ -106,4 +124,48 @@ test("catalog tax rates expose the standard French VAT set with 20% as default",
   assert.ok(taxRatesByKey.has("5.50"));
   assert.ok(taxRatesByKey.has("2.10"));
   assert.equal(taxRatesByKey.get("20.00")?.is_default, true);
+});
+
+test("catalog product images are appended with validation and deduplication", async () => {
+  const userId = await getDemoUserId();
+  const itemId = await getFirstItemId(userId);
+  const photoDataUrl = buildPngDataUrl(1200, 900);
+
+  const profileWithPhoto = await appendItemProfilePhoto(userId, itemId, {
+    data_url: photoDataUrl,
+  });
+
+  assert.equal(profileWithPhoto.photos.length >= 1, true);
+
+  const duplicatedProfile = await appendItemProfilePhoto(userId, itemId, {
+    data_url: photoDataUrl,
+  });
+
+  assert.equal(duplicatedProfile.photos.filter((photo) => photo === photoDataUrl).length, 1);
+});
+
+test("catalog product images reject files smaller than the minimum dimensions", async () => {
+  const userId = await getDemoUserId();
+  const itemId = await getFirstItemId(userId);
+
+  await assert.rejects(
+    () =>
+      appendItemProfilePhoto(userId, itemId, {
+        data_url: buildPngDataUrl(300, 300),
+      }),
+    /L'image doit mesurer au moins 600 x 600 px\./
+  );
+});
+
+test("catalog product images reject oversized payloads", async () => {
+  const userId = await getDemoUserId();
+  const itemId = await getFirstItemId(userId);
+
+  await assert.rejects(
+    () =>
+      appendItemProfilePhoto(userId, itemId, {
+        data_url: buildPngDataUrl(1600, 1200, 2 * 1024 * 1024 + 32),
+      }),
+    /L'image depasse la taille maximale autorisee de 2 Mo\./
+  );
 });

@@ -10,6 +10,7 @@ import {
   postCatalogTaxRate,
   postDuplicateCatalogItem,
   postDuplicateCatalogPack,
+  postItemProfilePhoto,
   putItemProfile,
   putCatalogPack,
   putCatalogTaxRate,
@@ -29,6 +30,7 @@ router.put("/tax-rates/:taxRateId", putCatalogTaxRate);
 router.delete("/tax-rates/:taxRateId", removeCatalogTaxRate);
 router.get("/item-profiles", getItemProfiles);
 router.put("/item-profiles/:itemId", putItemProfile);
+router.post("/item-profiles/:itemId/photos", postItemProfilePhoto);
 router.post("/products/:itemId/duplicate", postDuplicateCatalogItem);
 router.get("/packs", getCatalogPacks);
 router.post("/packs", postCatalogPack);

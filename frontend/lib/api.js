@@ -14,8 +14,10 @@ export const apiRequest = async (
 ) => {
   const requestHeaders = { ...headers };
   const sessionToken = token ?? (auth ? getSessionToken() : null);
+  const isFormDataBody =
+    typeof FormData !== "undefined" && body instanceof FormData;
 
-  if (body !== undefined) {
+  if (body !== undefined && !isFormDataBody) {
     requestHeaders["Content-Type"] = "application/json";
   }
 
@@ -23,12 +25,28 @@ export const apiRequest = async (
     requestHeaders.Authorization = `Bearer ${sessionToken}`;
   }
 
-  const response = await fetch(`${API_URL}${normalizePath(path)}`, {
-    method,
-    headers: requestHeaders,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-  });
+  let response;
+
+  try {
+    response = await fetch(`${API_URL}${normalizePath(path)}`, {
+      method,
+      headers: requestHeaders,
+      body:
+        body === undefined
+          ? undefined
+          : isFormDataBody
+            ? body
+            : JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch (requestError) {
+    const error = new Error(
+      "Le serveur n'a pas pu etre joint. Reessayez dans quelques instants."
+    );
+    error.code = "network_error";
+    error.cause = requestError;
+    throw error;
+  }
 
   if (response.status === 204) {
     return null;

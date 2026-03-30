@@ -2,6 +2,10 @@ import crypto from "crypto";
 
 import { query } from "../config/db.js";
 import HttpError from "../utils/http-error.js";
+import {
+  MAX_CATALOG_ITEM_PHOTOS,
+  validateCatalogImagePayload,
+} from "../utils/catalog-image.js";
 
 const validCatalogModes = new Set(["location", "sale", "resale"]);
 const validCategoryStatuses = new Set(["active", "draft", "inactive"]);
@@ -881,6 +885,20 @@ export const listItemProfiles = async (userId) => {
   return rows.map(serializeItemProfile);
 };
 
+const getItemProfileByItemId = async (userId, itemId) => {
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM item_profiles
+      WHERE item_id = $1 AND user_id = $2
+      LIMIT 1
+    `,
+    [itemId, userId]
+  );
+
+  return rows[0] ? serializeItemProfile(rows[0]) : null;
+};
+
 export const upsertItemProfile = async (userId, itemId, payload = {}) => {
   const item = await ensureItemOwnedByUser(userId, itemId);
   const profile = normalizeItemProfilePayload(payload, item);
@@ -1057,6 +1075,31 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
   );
 
   return serializeItemProfile(rows[0]);
+};
+
+export const appendItemProfilePhoto = async (userId, itemId, payload = {}) => {
+  const item = await ensureItemOwnedByUser(userId, itemId);
+  const validatedImage = validateCatalogImagePayload(payload);
+  const currentProfile = await getItemProfileByItemId(userId, itemId);
+  const currentPhotos = Array.isArray(currentProfile?.photos) ? currentProfile.photos : [];
+
+  if (currentPhotos.includes(validatedImage.data_url)) {
+    return currentProfile;
+  }
+
+  if (currentPhotos.length >= MAX_CATALOG_ITEM_PHOTOS) {
+    throw new HttpError(
+      400,
+      `Vous ne pouvez pas ajouter plus de ${MAX_CATALOG_ITEM_PHOTOS} images sur ce produit.`,
+      { code: "catalog_image_limit" }
+    );
+  }
+
+  return upsertItemProfile(userId, itemId, {
+    ...(currentProfile || {}),
+    public_name: currentProfile?.public_name || item.name,
+    photos: [...currentPhotos, validatedImage.data_url],
+  });
 };
 
 const getCatalogPackById = async (userId, packId) => {
