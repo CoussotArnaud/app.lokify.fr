@@ -9,7 +9,7 @@ const ensureStripeSecretKey = (secretKey) => {
   if (!secretKey) {
     throw new HttpError(
       503,
-      "La configuration Stripe super admin est incomplete. Utilisez le checkout local simule."
+      "La configuration de paiement est incomplete. Completez-la pour poursuivre le paiement."
     );
   }
 };
@@ -52,7 +52,6 @@ export const createStripeCheckoutSession = async ({
   appendStripeField(formData, "success_url", successUrl);
   appendStripeField(formData, "cancel_url", cancelUrl);
   appendStripeField(formData, "client_reference_id", user.id);
-  appendStripeField(formData, "customer_email", user.email);
   appendStripeField(formData, "line_items[0][quantity]", 1);
 
   if (stripePriceId) {
@@ -84,6 +83,8 @@ export const createStripeCheckoutSession = async ({
 
   if (existingCustomerId) {
     appendStripeField(formData, "customer", existingCustomerId);
+  } else {
+    appendStripeField(formData, "customer_email", user.email);
   }
 
   const response = await fetch(`${STRIPE_API_BASE}/checkout/sessions`, {

@@ -1,0 +1,204 @@
+<svg width="1080" height="1350" viewBox="0 0 1080 1350" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="100" y1="40" x2="980" y2="1280" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F8FCFF"/>
+      <stop offset="0.56" stop-color="#EEF4FF"/>
+      <stop offset="1" stop-color="#EAF2FF"/>
+    </linearGradient>
+    <linearGradient id="heroGradient" x1="124" y1="126" x2="852" y2="1088" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00A9E1"/>
+      <stop offset="0.52" stop-color="#1C7CC4"/>
+      <stop offset="1" stop-color="#6B2E82"/>
+    </linearGradient>
+    <linearGradient id="panelGradient" x1="527" y1="170" x2="988" y2="967" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#F5F8FF" stop-opacity="0.92"/>
+    </linearGradient>
+    <linearGradient id="metricBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#DFF7FF"/>
+      <stop offset="1" stop-color="#CDEBFF"/>
+    </linearGradient>
+    <linearGradient id="metricViolet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F1E3FB"/>
+      <stop offset="1" stop-color="#E5D5F6"/>
+    </linearGradient>
+    <linearGradient id="metricDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E2EBFF"/>
+      <stop offset="1" stop-color="#D2DEFF"/>
+    </linearGradient>
+    <radialGradient id="glowBlue" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(850 200) rotate(90) scale(280 280)">
+      <stop stop-color="#00A9E1" stop-opacity="0.23"/>
+      <stop offset="1" stop-color="#00A9E1" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowViolet" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(150 1030) rotate(90) scale(260 260)">
+      <stop stop-color="#6B2E82" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#6B2E82" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadowSoft" x="-80" y="-80" width="1240" height="1510" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="20"/>
+      <feGaussianBlur stdDeviation="24"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.160784 0 0 0 0 0.254902 0 0 0 0 0.501961 0 0 0 0.16 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1" result="shape"/>
+    </filter>
+    <filter id="shadowCard" x="60" y="60" width="960" height="1150" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="18"/>
+      <feGaussianBlur stdDeviation="20"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.160784 0 0 0 0 0.254902 0 0 0 0 0.501961 0 0 0 0.14 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1" result="shape"/>
+    </filter>
+    <clipPath id="dashboardClip">
+      <rect x="527" y="170" width="431" height="790" rx="34"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1080" height="1350" fill="url(#bgGradient)"/>
+  <circle cx="852" cy="200" r="280" fill="url(#glowBlue)"/>
+  <circle cx="148" cy="1032" r="260" fill="url(#glowViolet)"/>
+  <path d="M0 1082C120 1046 191 1058 303 1099C438 1149 539 1150 677 1110C811 1071 930 1045 1080 1084V1350H0V1082Z" fill="#FFFFFF" fill-opacity="0.64"/>
+  <path d="M0 219C166 154 313 135 493 168C694 204 857 160 1080 74V0H0V219Z" fill="#FFFFFF" fill-opacity="0.38"/>
+
+  <g filter="url(#shadowCard)">
+    <rect x="82" y="72" width="916" height="1204" rx="44" fill="#FFFFFF" fill-opacity="0.54"/>
+    <rect x="82.75" y="72.75" width="914.5" height="1202.5" rx="43.25" stroke="#FFFFFF" stroke-opacity="0.72" stroke-width="1.5"/>
+  </g>
+
+  <g>
+    <rect x="124" y="126" width="362" height="36" rx="18" fill="#FFFFFF" fill-opacity="0.82"/>
+    <text x="142" y="149" fill="#294180" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="16" font-weight="700" letter-spacing="0.18em">SaaS DE LOCATION ET GESTION MATERIEL</text>
+  </g>
+
+  <g>
+    <text x="124" y="226" fill="#6B2E82" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="30" font-weight="800" letter-spacing="0.24em">LOKIFY</text>
+    <text x="124" y="336" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="76" font-weight="800">
+      <tspan x="124" dy="0">Pilotez votre</tspan>
+      <tspan x="124" dy="86">parc materiel</tspan>
+      <tspan x="124" dy="86">sans friction</tspan>
+    </text>
+    <text x="124" y="632" fill="#64718A" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="27" font-weight="500">
+      <tspan x="124" dy="0">Reservations, planning, clients, stock et</tspan>
+      <tspan x="124" dy="40">livraisons dans une seule interface claire,</tspan>
+      <tspan x="124" dy="40">rapide et prete pour le quotidien terrain.</tspan>
+    </text>
+  </g>
+
+  <g filter="url(#shadowSoft)">
+    <rect x="124" y="760" width="286" height="132" rx="28" fill="url(#heroGradient)"/>
+    <text x="162" y="815" fill="#FFFFFF" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="18" font-weight="700" letter-spacing="0.14em">DEMO PRODUIT</text>
+    <text x="162" y="855" fill="#FFFFFF" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="34" font-weight="800">app.lokify.fr</text>
+  </g>
+
+  <g filter="url(#shadowCard)">
+    <rect x="527" y="170" width="431" height="790" rx="34" fill="url(#panelGradient)"/>
+    <rect x="527.75" y="170.75" width="429.5" height="788.5" rx="33.25" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="1.5"/>
+  </g>
+
+  <g clip-path="url(#dashboardClip)">
+    <rect x="547" y="192" width="391" height="60" rx="22" fill="#FFFFFF" fill-opacity="0.86"/>
+    <circle cx="581" cy="222" r="10" fill="#6B2E82"/>
+    <circle cx="612" cy="222" r="10" fill="#00A9E1"/>
+    <rect x="645" y="208" width="132" height="28" rx="14" fill="#F2F6FF"/>
+    <rect x="793" y="208" width="92" height="28" rx="14" fill="#F2F6FF"/>
+    <circle cx="907" cy="222" r="17" fill="url(#heroGradient)"/>
+
+    <rect x="547" y="276" width="391" height="192" rx="32" fill="url(#heroGradient)"/>
+    <text x="578" y="328" fill="#FFFFFF" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="17" font-weight="700" letter-spacing="0.12em">DASHBOARD</text>
+    <text x="578" y="386" fill="#FFFFFF" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="42" font-weight="800">Vue operations</text>
+    <text x="578" y="421" fill="#E9F6FF" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="22" font-weight="500">Reservations, departs et retours a preparer</text>
+    <rect x="578" y="440" width="98" height="12" rx="6" fill="#FFFFFF" fill-opacity="0.88"/>
+    <rect x="689" y="440" width="134" height="12" rx="6" fill="#FFFFFF" fill-opacity="0.48"/>
+    <rect x="578" y="458" width="204" height="12" rx="6" fill="#FFFFFF" fill-opacity="0.48"/>
+    <circle cx="859" cy="363" r="58" fill="#FFFFFF" fill-opacity="0.12"/>
+    <circle cx="859" cy="363" r="33" fill="#FFFFFF" fill-opacity="0.2"/>
+    <path d="M838 366L853 381L882 350" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="547" y="493" width="122" height="126" rx="26" fill="url(#metricBlue)"/>
+    <text x="572" y="530" fill="#294180" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="14" font-weight="700" letter-spacing="0.1em">RESAS</text>
+    <text x="572" y="575" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="38" font-weight="800">128</text>
+    <rect x="572" y="590" width="70" height="10" rx="5" fill="#00A9E1" fill-opacity="0.36"/>
+
+    <rect x="681" y="493" width="122" height="126" rx="26" fill="url(#metricViolet)"/>
+    <text x="706" y="530" fill="#6B2E82" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="14" font-weight="700" letter-spacing="0.1em">STOCK</text>
+    <text x="706" y="575" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="38" font-weight="800">94%</text>
+    <rect x="706" y="590" width="70" height="10" rx="5" fill="#6B2E82" fill-opacity="0.24"/>
+
+    <rect x="815" y="493" width="123" height="126" rx="26" fill="url(#metricDark)"/>
+    <text x="840" y="530" fill="#294180" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="14" font-weight="700" letter-spacing="0.1em">TOURNEES</text>
+    <text x="840" y="575" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="38" font-weight="800">12</text>
+    <rect x="840" y="590" width="70" height="10" rx="5" fill="#294180" fill-opacity="0.22"/>
+
+    <rect x="547" y="643" width="391" height="139" rx="28" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="575" y="680" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="20" font-weight="800">Planning semaine</text>
+    <g opacity="0.9">
+      <rect x="575" y="702" width="44" height="56" rx="16" fill="#F2F7FF"/>
+      <rect x="629" y="688" width="44" height="70" rx="16" fill="#DFF6FF"/>
+      <rect x="683" y="715" width="44" height="43" rx="16" fill="#EADCF6"/>
+      <rect x="737" y="678" width="44" height="80" rx="16" fill="#D8E9FF"/>
+      <rect x="791" y="694" width="44" height="64" rx="16" fill="#E8F7FF"/>
+      <rect x="845" y="709" width="44" height="49" rx="16" fill="#F1E3FB"/>
+      <rect x="899" y="700" width="11" height="58" rx="5.5" fill="#00A9E1"/>
+      <path d="M575 734C620 706 662 718 704 726C749 735 784 744 835 709C861 691 886 687 910 699" stroke="url(#heroGradient)" stroke-width="6" stroke-linecap="round"/>
+    </g>
+
+    <rect x="547" y="806" width="391" height="132" rx="28" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="575" y="842" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="20" font-weight="800">Flux reservations</text>
+    <g>
+      <rect x="575" y="865" width="335" height="14" rx="7" fill="#EFF4FF"/>
+      <rect x="575" y="865" width="102" height="14" rx="7" fill="#00A9E1"/>
+      <rect x="688" y="865" width="88" height="14" rx="7" fill="#294180"/>
+      <rect x="787" y="865" width="67" height="14" rx="7" fill="#6B2E82"/>
+    </g>
+    <g fill="#64718A" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="15" font-weight="700">
+      <text x="575" y="906">Demandes</text>
+      <text x="701" y="906">Confirmees</text>
+      <text x="811" y="906">Retour</text>
+    </g>
+  </g>
+
+  <g filter="url(#shadowCard)">
+    <rect x="124" y="940" width="304" height="160" rx="32" fill="#FFFFFF" fill-opacity="0.92"/>
+    <text x="156" y="988" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="24" font-weight="800">Clients et suivi</text>
+    <text x="156" y="1022" fill="#64718A" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="18" font-weight="500">128 comptes actifs centralises</text>
+    <circle cx="182" cy="1066" r="18" fill="#DDF5FF"/>
+    <circle cx="214" cy="1066" r="18" fill="#EADCF6"/>
+    <circle cx="246" cy="1066" r="18" fill="#D8E9FF"/>
+    <circle cx="278" cy="1066" r="18" fill="#DFF7FF"/>
+    <circle cx="310" cy="1066" r="18" fill="#F1E3FB"/>
+    <rect x="344" y="1049" width="52" height="34" rx="17" fill="url(#heroGradient)"/>
+    <text x="358" y="1072" fill="#FFFFFF" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="17" font-weight="800">+24</text>
+  </g>
+
+  <g filter="url(#shadowCard)">
+    <rect x="444" y="998" width="248" height="160" rx="32" fill="#FFFFFF" fill-opacity="0.9"/>
+    <text x="475" y="1046" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="24" font-weight="800">Stock en direct</text>
+    <rect x="475" y="1075" width="30" height="40" rx="12" fill="#D9EEFF"/>
+    <rect x="516" y="1053" width="30" height="62" rx="12" fill="#00A9E1"/>
+    <rect x="557" y="1088" width="30" height="27" rx="12" fill="#6B2E82" fill-opacity="0.85"/>
+    <rect x="598" y="1038" width="30" height="77" rx="12" fill="#294180"/>
+    <rect x="639" y="1064" width="30" height="51" rx="12" fill="#8EDFFF"/>
+    <text x="475" y="1138" fill="#64718A" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="18" font-weight="500">Disponibilite, alertes et categories</text>
+  </g>
+
+  <g filter="url(#shadowCard)">
+    <rect x="726" y="974" width="232" height="222" rx="38" fill="#171F3B"/>
+    <rect x="742" y="992" width="200" height="190" rx="28" fill="#F7FAFF"/>
+    <rect x="758" y="1012" width="168" height="26" rx="13" fill="#EEF4FF"/>
+    <text x="759" y="1059" fill="#171F3B" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="19" font-weight="800">Livraisons</text>
+    <circle cx="780" cy="1094" r="10" fill="#00A9E1"/>
+    <circle cx="844" cy="1126" r="10" fill="#6B2E82"/>
+    <circle cx="900" cy="1082" r="10" fill="#294180"/>
+    <path d="M780 1094C803 1083 821 1110 844 1126C863 1138 880 1096 900 1082" stroke="url(#heroGradient)" stroke-width="6" stroke-linecap="round"/>
+    <rect x="759" y="1146" width="106" height="12" rx="6" fill="#00A9E1" fill-opacity="0.22"/>
+    <rect x="875" y="1146" width="40" height="12" rx="6" fill="#6B2E82" fill-opacity="0.18"/>
+  </g>
+
+  <g>
+    <text x="124" y="1188" fill="#294180" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="20" font-weight="700" letter-spacing="0.1em">RESERVATIONS  /  PLANNING  /  STOCK  /  CLIENTS  /  LIVRAISONS</text>
+    <text x="124" y="1238" fill="#64718A" font-family="'Segoe UI', 'Trebuchet MS', sans-serif" font-size="22" font-weight="500">Une base visuelle pour publication social media, teaser produit ou annonce demo.</text>
+  </g>
+</svg>

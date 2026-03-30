@@ -7,11 +7,20 @@ export default function MetricCard({
   helper,
   trend,
   tone = "neutral",
+  onClick,
+  className = "",
 }) {
+  const interactive = typeof onClick === "function";
+  const Component = interactive ? "button" : "article";
+
   return (
-    <article className={`metric-card tone-${tone}`}>
+    <Component
+      type={interactive ? "button" : undefined}
+      className={`metric-card tone-${tone} ${interactive ? "metric-card-action" : ""} ${className}`.trim()}
+      onClick={interactive ? onClick : undefined}
+    >
       <div className="metric-icon">
-        <Icon name={icon} size={18} />
+        <Icon name={icon} size={15} />
       </div>
       <div className="metric-copy">
         <p>{label}</p>
@@ -19,6 +28,6 @@ export default function MetricCard({
         {helper ? <span>{helper}</span> : null}
       </div>
       {trend ? <small className="metric-trend">{trend}</small> : null}
-    </article>
+    </Component>
   );
 }

@@ -76,11 +76,19 @@ const buildCredentialEmail = ({ fullName, resetUrl, expiresAt, purpose }) => {
   };
 };
 
+const assertPasswordResetAllowed = (user) => {
+  if (user?.account_role === "provider" && user?.archived_at) {
+    throw new HttpError(
+      409,
+      "Ce compte prestataire est archive. Restaurez-le avant d'envoyer un lien d'acces."
+    );
+  }
+};
+
 const getUserForPasswordResetByEmail = async (email) => {
   const { rows } = await query(
     `
-      SELECT id, full_name, email, account_role
-      , provider_status
+      SELECT id, full_name, email, account_role, provider_status, archived_at
       FROM users
       WHERE email = $1
       LIMIT 1
@@ -94,8 +102,7 @@ const getUserForPasswordResetByEmail = async (email) => {
 const getUserForPasswordResetById = async (userId) => {
   const { rows } = await query(
     `
-      SELECT id, full_name, email, account_role
-      , provider_status
+      SELECT id, full_name, email, account_role, provider_status, archived_at
       FROM users
       WHERE id = $1
       LIMIT 1
@@ -160,6 +167,7 @@ export const requestPasswordResetForUser = async (
   { requestedByUserId = null, purpose = "password_reset" } = {}
 ) => {
   const user = await getUserForPasswordResetById(userId);
+  assertPasswordResetAllowed(user);
   const effectivePurpose =
     purpose === "activation" || user.provider_status === "invited"
       ? "activation"
@@ -225,6 +233,20 @@ export const requestPasswordResetForEmail = async (
     throw new HttpError(404, "Utilisateur introuvable.");
   }
 
+  if (user.account_role === "provider" && user.archived_at) {
+    if (suppressUnknownUser) {
+      return {
+        requestedAt: new Date().toISOString(),
+        deliveryMode: "none",
+      };
+    }
+
+    throw new HttpError(
+      409,
+      "Ce compte prestataire est archive. Restaurez-le avant de demander un nouveau mot de passe."
+    );
+  }
+
   return requestPasswordResetForUser(user.id, { requestedByUserId });
 };
 
@@ -243,7 +265,12 @@ export const resetPasswordWithToken = async ({ token, password }) => {
   const tokenHash = buildTokenHash(normalizedToken);
   const { rows } = await query(
     `
-      SELECT password_reset_tokens.id, password_reset_tokens.user_id, users.provider_status
+      SELECT
+        password_reset_tokens.id,
+        password_reset_tokens.user_id,
+        users.provider_status,
+        users.account_role,
+        users.archived_at
       FROM password_reset_tokens
       INNER JOIN users
         ON users.id = password_reset_tokens.user_id
@@ -258,6 +285,13 @@ export const resetPasswordWithToken = async ({ token, password }) => {
 
   if (!resetToken) {
     throw new HttpError(400, "Le lien de reinitialisation est invalide ou expire.");
+  }
+
+  if (resetToken.account_role === "provider" && resetToken.archived_at) {
+    throw new HttpError(
+      409,
+      "Ce compte prestataire est archive. La reinitialisation est bloquee tant qu'il n'est pas restaure."
+    );
   }
 
   const passwordHash = await bcrypt.hash(normalizedPassword, 10);

@@ -7,8 +7,11 @@ import { getLokifyPlanById } from "../config/lokify-plans.js";
 import HttpError from "../utils/http-error.js";
 import { isValidSiret, normalizeSiret } from "../utils/siret.js";
 import { ensureUserSettingsRecords } from "./account-profile.service.js";
+import { computeScheduledPurgeAt } from "./archive-maintenance.service.js";
+import { recordDomainEvent } from "./domain-events.service.js";
 import { getVerifiedCompanyIdentity } from "./insee-sirene.service.js";
 import { requestPasswordResetForUser } from "./password-reset.service.js";
+import { getSupportSnapshotForProvider } from "./support.service.js";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trial"]);
 const allowedProviderStatuses = new Set(["invited", "active", "blocked"]);
@@ -53,6 +56,13 @@ const providerAdminSelect = `
     users.sirene_checked_at,
     users.account_role,
     users.provider_status,
+    users.archived_at,
+    users.archived_by,
+    users.archive_reason,
+    users.scheduled_purge_at,
+    users.restored_at,
+    users.restored_by,
+    users.restore_reason,
     users.created_at,
     lokify_billing_settings.lokify_plan_id,
     lokify_billing_settings.lokify_plan_name,
@@ -78,6 +88,8 @@ const providerAdminSelect = `
     customer_payment_settings.customer_payment_method_label,
     customer_payment_settings.customer_payment_status_updated_at,
     COALESCE(client_counts.total_clients, 0) AS total_clients,
+    COALESCE(client_counts.active_clients, 0) AS active_clients,
+    COALESCE(client_counts.archived_clients, 0) AS archived_clients,
     COALESCE(reservation_counts.total_reservations, 0) AS total_reservations,
     password_reset_activity.last_password_reset_requested_at
   FROM users
@@ -86,7 +98,11 @@ const providerAdminSelect = `
   LEFT JOIN customer_payment_settings
     ON customer_payment_settings.user_id = users.id
   LEFT JOIN (
-    SELECT user_id, COUNT(*) AS total_clients
+    SELECT
+      user_id,
+      COUNT(*) AS total_clients,
+      COUNT(*) FILTER (WHERE archived_at IS NULL) AS active_clients,
+      COUNT(*) FILTER (WHERE archived_at IS NOT NULL) AS archived_clients
     FROM clients
     GROUP BY user_id
   ) AS client_counts
@@ -222,11 +238,227 @@ const getProviderBusinessMetrics = async (providerId) => {
   };
 };
 
+const parseJsonObject = (value) => {
+  try {
+    return JSON.parse(value || "{}");
+  } catch (_error) {
+    return {};
+  }
+};
+
+const buildProviderScopeClause = (scope = "active") => {
+  const normalizedScope = String(scope || "active").trim().toLowerCase();
+
+  if (normalizedScope === "active") {
+    return {
+      normalizedScope,
+      clause: "users.archived_at IS NULL",
+    };
+  }
+
+  if (normalizedScope === "archived") {
+    return {
+      normalizedScope,
+      clause: "users.archived_at IS NOT NULL",
+    };
+  }
+
+  if (normalizedScope === "all") {
+    return {
+      normalizedScope,
+      clause: "1 = 1",
+    };
+  }
+
+  throw new HttpError(400, "Scope prestataire invalide.");
+};
+
+const assertProviderIsActive = (provider, message = "Ce prestataire est archive.") => {
+  if (provider?.archived_at) {
+    throw new HttpError(409, message);
+  }
+};
+
+const listProviderRecentClients = async (providerId, limit = 10) => {
+  const { rows } = await query(
+    `
+      SELECT
+        clients.id,
+        clients.first_name,
+        clients.last_name,
+        clients.email,
+        clients.phone,
+        clients.archived_at,
+        clients.scheduled_purge_at,
+        clients.created_at,
+        COUNT(reservations.id) AS reservation_count,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN reservations.status IN ('confirmed', 'completed') THEN reservations.total_amount
+              ELSE 0
+            END
+          ),
+          0
+        ) AS total_revenue
+      FROM clients
+      LEFT JOIN reservations
+        ON reservations.client_id = clients.id
+      WHERE clients.user_id = $1
+      GROUP BY clients.id
+      ORDER BY clients.created_at DESC
+      LIMIT $2
+    `,
+    [providerId, limit]
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    full_name: [row.first_name, row.last_name].filter(Boolean).join(" "),
+    email: row.email,
+    phone: row.phone || null,
+    created_at: row.created_at,
+    metrics: {
+      reservationCount: Number(row.reservation_count || 0),
+      totalRevenue: Number(row.total_revenue || 0),
+    },
+    archive: {
+      isArchived: Boolean(row.archived_at),
+      archivedAt: row.archived_at || null,
+      scheduledPurgeAt: row.scheduled_purge_at || null,
+    },
+  }));
+};
+
+const listProviderRecentReservations = async (providerId, limit = 10) => {
+  const { rows } = await query(
+    `
+      SELECT
+        reservations.id,
+        reservations.reference,
+        reservations.client_id,
+        reservations.start_date,
+        reservations.end_date,
+        reservations.status,
+        reservations.total_amount,
+        reservations.source,
+        reservations.fulfillment_mode,
+        clients.first_name || ' ' || clients.last_name AS client_name
+      FROM reservations
+      INNER JOIN clients
+        ON clients.id = reservations.client_id
+      WHERE reservations.user_id = $1
+      ORDER BY reservations.start_date DESC
+      LIMIT $2
+    `,
+    [providerId, limit]
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    total_amount: Number(row.total_amount || 0),
+    client_name: row.client_name || "Client indisponible",
+  }));
+};
+
+const listProviderCatalogItems = async (providerId, limit = 10) => {
+  const { rows } = await query(
+    `
+      SELECT id, name, category, price, deposit, stock, status, created_at
+      FROM items
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2
+    `,
+    [providerId, limit]
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    price: Number(row.price || 0),
+    deposit: Number(row.deposit || 0),
+    stock: Number(row.stock || 0),
+  }));
+};
+
+const listProviderRecentEvents = async (providerId, limit = 12) => {
+  const { rows } = await query(
+    `
+      SELECT
+        domain_events.id,
+        domain_events.aggregate_type,
+        domain_events.aggregate_id,
+        domain_events.event_type,
+        domain_events.event_status,
+        domain_events.payload_json,
+        domain_events.occurred_at,
+        actor.id AS actor_id,
+        actor.full_name AS actor_name,
+        actor.email AS actor_email
+      FROM domain_events
+      LEFT JOIN users AS actor
+        ON actor.id = domain_events.actor_user_id
+      WHERE domain_events.user_id = $1
+      ORDER BY domain_events.occurred_at DESC, domain_events.created_at DESC
+      LIMIT $2
+    `,
+    [providerId, limit]
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    aggregate_type: row.aggregate_type,
+    aggregate_id: row.aggregate_id,
+    event_type: row.event_type,
+    event_status: row.event_status,
+    occurred_at: row.occurred_at,
+    payload: parseJsonObject(row.payload_json),
+    actor: row.actor_id
+      ? {
+          id: row.actor_id,
+          full_name: row.actor_name || null,
+          email: row.actor_email || null,
+        }
+      : null,
+  }));
+};
+
+const getProviderDetailCollections = async (providerId) => {
+  const [clients, reservations, catalogItems, domainEvents, support] = await Promise.all([
+    listProviderRecentClients(providerId),
+    listProviderRecentReservations(providerId),
+    listProviderCatalogItems(providerId),
+    listProviderRecentEvents(providerId),
+    getSupportSnapshotForProvider(providerId).catch(() => ({
+      metrics: {
+        totalTickets: 0,
+        openTickets: 0,
+        inProgressTickets: 0,
+        closedTickets: 0,
+        unreadNotifications: 0,
+      },
+      recentTickets: [],
+      notifications: [],
+    })),
+  ]);
+
+  return {
+    linked_clients: clients,
+    linked_reservations: reservations,
+    linked_catalog_items: catalogItems,
+    history: domainEvents,
+    support,
+  };
+};
+
 const hasOperationalAccess = (row) => {
   const endAt = parseDate(row.lokify_subscription_end_at);
   const isPeriodValid = !endAt || endAt.getTime() >= Date.now();
 
   return (
+    !row.archived_at &&
     row.provider_status === "active" &&
     ACTIVE_SUBSCRIPTION_STATUSES.has(String(row.lokify_subscription_status || "inactive")) &&
     isPeriodValid
@@ -370,7 +602,19 @@ const serializeProviderSummary = (row, options = {}) => {
     created_at: row.created_at,
     metrics: {
       totalClients: Number(row.total_clients || 0),
+      activeClients: Number(row.active_clients || 0),
+      archivedClients: Number(row.archived_clients || 0),
       totalReservations: Number(row.total_reservations || 0),
+    },
+    archive: {
+      isArchived: Boolean(row.archived_at),
+      archivedAt: row.archived_at || null,
+      archivedBy: row.archived_by || null,
+      archiveReason: row.archive_reason || null,
+      scheduledPurgeAt: row.scheduled_purge_at || null,
+      restoredAt: row.restored_at || null,
+      restoredBy: row.restored_by || null,
+      restoreReason: row.restore_reason || null,
     },
     business: {
       monthlyRevenue: Number(businessMetrics?.monthlyRevenue || 0),
@@ -419,7 +663,9 @@ const serializeProviderSummary = (row, options = {}) => {
       lastPasswordResetRequestedAt: row.last_password_reset_requested_at || null,
       lastInvitationSentAt: row.last_password_reset_requested_at || null,
       accountActivationStatus:
-        row.provider_status === "invited"
+        row.archived_at
+          ? "archived"
+          : row.provider_status === "invited"
           ? "pending"
           : row.provider_status === "blocked"
             ? "blocked"
@@ -686,11 +932,13 @@ const upsertProviderPaymentState = async (providerId, paymentsPayload = {}) => {
   );
 };
 
-export const listProvidersForAdmin = async () => {
+export const listProvidersForAdmin = async ({ scope = "active" } = {}) => {
+  const scopeFilter = buildProviderScopeClause(scope);
   const { rows } = await query(
     `
       ${providerAdminSelect}
       WHERE users.account_role = 'provider'
+        AND ${scopeFilter.clause}
       ORDER BY users.created_at DESC
     `
   );
@@ -699,17 +947,24 @@ export const listProvidersForAdmin = async () => {
 };
 
 export const getProviderForAdmin = async (providerId) => {
-  const [providerRow, businessMetrics] = await Promise.all([
+  const [providerRow, businessMetrics, collections] = await Promise.all([
     ensureProviderExists(providerId),
     getProviderBusinessMetrics(providerId),
+    getProviderDetailCollections(providerId),
   ]);
 
-  return serializeProviderSummary(providerRow, { businessMetrics });
+  return {
+    ...serializeProviderSummary(providerRow, { businessMetrics }),
+    ...collections,
+  };
 };
 
 export const getAdminOverview = async () => {
-  const providers = await listProvidersForAdmin();
-  const providersWithActiveLokifyRevenue = providers.filter(
+  const [activeProviders, allProviders] = await Promise.all([
+    listProvidersForAdmin({ scope: "active" }),
+    listProvidersForAdmin({ scope: "all" }),
+  ]);
+  const providersWithActiveLokifyRevenue = activeProviders.filter(
     (provider) =>
       provider.provider_status === "active" &&
       provider.subscription.lokifySubscriptionStatus === "active"
@@ -732,31 +987,34 @@ export const getAdminOverview = async () => {
       ),
     0
   );
-  const activeProviders = providers.filter((provider) => provider.provider_status === "active").length;
+  const activeProvidersCount = activeProviders.filter(
+    (provider) => provider.provider_status === "active"
+  ).length;
 
   return {
     metrics: {
-      totalProviders: providers.length,
-      activeProviders,
-      activeProvidersCurrently: activeProviders,
-      invitedProviders: providers.filter((provider) => provider.provider_status === "invited").length,
-      blockedProviders: providers.filter((provider) => provider.provider_status === "blocked").length,
-      activeSubscriptions: providers.filter(
+      totalProviders: allProviders.length,
+      archivedProviders: allProviders.filter((provider) => provider.archive?.isArchived).length,
+      activeProviders: activeProvidersCount,
+      activeProvidersCurrently: activeProvidersCount,
+      invitedProviders: activeProviders.filter((provider) => provider.provider_status === "invited").length,
+      blockedProviders: activeProviders.filter((provider) => provider.provider_status === "blocked").length,
+      activeSubscriptions: activeProviders.filter(
         (provider) => provider.subscription.lokifySubscriptionStatus === "active"
       ).length,
       lokifyMonthlyRevenue,
       lokifyAnnualRevenue,
-      providerStripeConfigured: providers.filter(
+      providerStripeConfigured: activeProviders.filter(
         (provider) => provider.payments.customerStripeConfigured
       ).length,
-      paymentAlerts: providers.filter((provider) =>
+      paymentAlerts: activeProviders.filter((provider) =>
         ["overdue", "unpaid", "expired"].includes(provider.payments.customerPaymentStatus)
       ).length,
-      providersUpToDate: providers.filter((provider) =>
+      providersUpToDate: activeProviders.filter((provider) =>
         ["paid", "trial"].includes(provider.payments.customerPaymentStatus)
       ).length,
     },
-    providers,
+    providers: activeProviders,
   };
 };
 
@@ -818,19 +1076,42 @@ export const createProviderFromAdmin = async (payload = {}) => {
     throw new HttpError(400, "L'email du prestataire est obligatoire.");
   }
 
-  const existingUser = await query("SELECT id FROM users WHERE email = $1", [email]);
+  const existingUser = await query(
+    "SELECT id, archived_at FROM users WHERE email = $1 LIMIT 1",
+    [email]
+  );
 
   if (existingUser.rows[0]) {
+    if (existingUser.rows[0].archived_at) {
+      throw new HttpError(
+        409,
+        "Un prestataire archive utilise deja cet email. Restaurez le compte existant au lieu d'en creer un nouveau."
+      );
+    }
+
     throw new HttpError(409, "Un utilisateur avec cet email existe deja.");
   }
 
   if (siret) {
     const existingSiret = await query(
-      "SELECT id FROM users WHERE siret = $1 AND account_role = 'provider' LIMIT 1",
+      `
+        SELECT id, archived_at
+        FROM users
+        WHERE siret = $1
+          AND account_role = 'provider'
+        LIMIT 1
+      `,
       [siret]
     );
 
     if (existingSiret.rows[0]) {
+      if (existingSiret.rows[0].archived_at) {
+        throw new HttpError(
+          409,
+          "Un prestataire archive utilise deja ce SIRET. Restaurez le compte existant au lieu d'en creer un nouveau."
+        );
+      }
+
       throw new HttpError(409, "Un compte prestataire avec ce SIRET existe deja.");
     }
   }
@@ -930,6 +1211,10 @@ export const createProviderFromAdmin = async (payload = {}) => {
 
 export const updateProviderFromAdmin = async (providerId, payload = {}) => {
   const currentProvider = await ensureProviderExists(providerId);
+  assertProviderIsActive(
+    currentProvider,
+    "Ce prestataire est archive. Restaurez-le avant de modifier sa fiche."
+  );
   const nextCompanyNameInput = readPayloadValue(payload, ["company_name", "companyName"]);
   const nextFullNameInput = readPayloadValue(payload, ["full_name", "fullName"]);
   const nextEmailInput = readPayloadValue(payload, ["email"]);
@@ -1001,22 +1286,43 @@ export const updateProviderFromAdmin = async (providerId, payload = {}) => {
 
   if (nextEmail !== currentProvider.email) {
     const existingUser = await query(
-      "SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1",
+      "SELECT id, archived_at FROM users WHERE email = $1 AND id <> $2 LIMIT 1",
       [nextEmail, providerId]
     );
 
     if (existingUser.rows[0]) {
+      if (existingUser.rows[0].archived_at) {
+        throw new HttpError(
+          409,
+          "Un prestataire archive utilise deja cet email. Restaurez le compte existant au lieu d'en creer un nouveau."
+        );
+      }
+
       throw new HttpError(409, "Un utilisateur avec cet email existe deja.");
     }
   }
 
   if (nextSiret && nextSiret !== currentProvider.siret) {
     const existingSiret = await query(
-      "SELECT id FROM users WHERE siret = $1 AND id <> $2 AND account_role = 'provider' LIMIT 1",
+      `
+        SELECT id, archived_at
+        FROM users
+        WHERE siret = $1
+          AND id <> $2
+          AND account_role = 'provider'
+        LIMIT 1
+      `,
       [nextSiret, providerId]
     );
 
     if (existingSiret.rows[0]) {
+      if (existingSiret.rows[0].archived_at) {
+        throw new HttpError(
+          409,
+          "Un prestataire archive utilise deja ce SIRET. Restaurez le compte existant au lieu d'en creer un nouveau."
+        );
+      }
+
       throw new HttpError(409, "Un compte prestataire avec ce SIRET existe deja.");
     }
   }
@@ -1153,7 +1459,11 @@ export const requestProviderPasswordResetFromAdmin = async (
   providerId,
   requestedByUserId
 ) => {
-  await ensureProviderExists(providerId);
+  const provider = await ensureProviderExists(providerId);
+  assertProviderIsActive(
+    provider,
+    "Ce prestataire est archive. Restaurez-le avant d'envoyer un lien de reinitialisation."
+  );
 
   return requestPasswordResetForUser(providerId, {
     requestedByUserId,
@@ -1166,6 +1476,10 @@ export const requestProviderInvitationFromAdmin = async (
   requestedByUserId
 ) => {
   const provider = await ensureProviderExists(providerId);
+  assertProviderIsActive(
+    provider,
+    "Ce prestataire est archive. Restaurez-le avant d'envoyer une invitation."
+  );
 
   return requestPasswordResetForUser(providerId, {
     requestedByUserId,
@@ -1173,8 +1487,116 @@ export const requestProviderInvitationFromAdmin = async (
   });
 };
 
-export const deleteProviderFromAdmin = async (providerId) => {
-  await ensureProviderExists(providerId);
+export const archiveProviderFromAdmin = async (
+  providerId,
+  actorUserId,
+  { archiveReason = null } = {}
+) => {
+  const provider = await ensureProviderExists(providerId);
 
-  await query("DELETE FROM users WHERE id = $1 AND account_role = 'provider'", [providerId]);
+  if (provider.archived_at) {
+    throw new HttpError(409, "Ce prestataire est deja archive.");
+  }
+
+  const archivedAt = new Date().toISOString();
+  const scheduledPurgeAt = computeScheduledPurgeAt(archivedAt);
+
+  await query(
+    `
+      UPDATE users
+      SET archived_at = $2,
+          archived_by = $3,
+          archive_reason = $4,
+          scheduled_purge_at = $5,
+          restored_at = NULL,
+          restored_by = NULL,
+          restore_reason = NULL,
+          updated_at = NOW()
+      WHERE id = $1
+        AND account_role = 'provider'
+    `,
+    [
+      providerId,
+      archivedAt,
+      actorUserId,
+      normalizeOptionalText(archiveReason),
+      scheduledPurgeAt,
+    ]
+  );
+
+  await recordDomainEvent(query, {
+    userId: providerId,
+    actorUserId,
+    aggregateType: "provider",
+    aggregateId: providerId,
+    eventType: "provider.archived",
+    payload: {
+      provider_id: providerId,
+      company_name: provider.company_name || provider.full_name || null,
+      email: provider.email,
+      archived_at: archivedAt,
+      scheduled_purge_at: scheduledPurgeAt,
+      archive_reason: normalizeOptionalText(archiveReason),
+    },
+  });
+
+  return getProviderForAdmin(providerId);
+};
+
+export const restoreProviderFromAdmin = async (
+  providerId,
+  actorUserId,
+  { restoreReason = null } = {}
+) => {
+  const provider = await ensureProviderExists(providerId);
+
+  if (!provider.archived_at) {
+    throw new HttpError(409, "Ce prestataire n'est pas archive.");
+  }
+
+  const restoredAt = new Date().toISOString();
+
+  await query(
+    `
+      UPDATE users
+      SET archived_at = NULL,
+          archived_by = NULL,
+          archive_reason = NULL,
+          scheduled_purge_at = NULL,
+          restored_at = $2,
+          restored_by = $3,
+          restore_reason = $4,
+          updated_at = NOW()
+      WHERE id = $1
+        AND account_role = 'provider'
+    `,
+    [providerId, restoredAt, actorUserId, normalizeOptionalText(restoreReason)]
+  );
+
+  await recordDomainEvent(query, {
+    userId: providerId,
+    actorUserId,
+    aggregateType: "provider",
+    aggregateId: providerId,
+    eventType: "provider.restored",
+    payload: {
+      provider_id: providerId,
+      company_name: provider.company_name || provider.full_name || null,
+      email: provider.email,
+      restored_at: restoredAt,
+      restore_reason: normalizeOptionalText(restoreReason),
+    },
+  });
+
+  return getProviderForAdmin(providerId);
+};
+
+export const deleteProviderFromAdmin = async (
+  providerId,
+  actorUserId,
+  options = {}
+) => {
+  await archiveProviderFromAdmin(providerId, actorUserId, options);
+
+  return { success: true };
 };

@@ -6,9 +6,11 @@ import {
   getProviderController,
   getProvidersController,
   getSuperAdminStripeSettingsController,
+  postProviderArchiveController,
   postProviderInvitationController,
   postProviderPasswordResetController,
   postProviderController,
+  postProviderRestoreController,
   putProviderController,
   putSuperAdminStripeSettingsController,
 } from "../controllers/admin.controller.js";
@@ -20,6 +22,8 @@ router.get("/providers", getProvidersController);
 router.get("/providers/:providerId", getProviderController);
 router.post("/providers", postProviderController);
 router.put("/providers/:providerId", putProviderController);
+router.post("/providers/:providerId/archive", postProviderArchiveController);
+router.post("/providers/:providerId/restore", postProviderRestoreController);
 router.post("/providers/:providerId/invitation", postProviderInvitationController);
 router.post("/providers/:providerId/password-reset", postProviderPasswordResetController);
 router.delete("/providers/:providerId", deleteProviderController);

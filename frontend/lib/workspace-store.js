@@ -1,6 +1,7 @@
 const CLIENT_PROFILE_KEY = "lokify_client_profiles";
 const PRODUCT_PROFILE_KEY = "lokify_product_profiles";
 const CUSTOM_CATEGORY_KEY = "lokify_custom_categories";
+const CATALOG_DRAFT_PREFIX = "lokify_catalog_draft:";
 
 const isBrowser = () => typeof window !== "undefined";
 
@@ -78,4 +79,18 @@ export const saveCustomCategory = (category) => {
 export const removeCustomCategory = (categorySlug) => {
   const nextCategories = readCustomCategories().filter((entry) => entry.slug !== categorySlug);
   return writeJson(CUSTOM_CATEGORY_KEY, nextCategories);
+};
+
+export const readCatalogDraft = (draftKey, fallback = null) =>
+  readJson(`${CATALOG_DRAFT_PREFIX}${draftKey}`, fallback);
+
+export const saveCatalogDraft = (draftKey, value) =>
+  writeJson(`${CATALOG_DRAFT_PREFIX}${draftKey}`, value);
+
+export const removeCatalogDraft = (draftKey) => {
+  if (!isBrowser()) {
+    return;
+  }
+
+  window.localStorage.removeItem(`${CATALOG_DRAFT_PREFIX}${draftKey}`);
 };

@@ -15,8 +15,8 @@ const normalizeItemPayload = (payload = {}) => ({
 });
 
 const validateItem = (item) => {
-  if (!item.name || !item.category) {
-    throw new HttpError(400, "Nom et categorie sont obligatoires.");
+  if (!item.name) {
+    throw new HttpError(400, "Le nom du produit est obligatoire.");
   }
 
   if (!Number.isFinite(item.stock) || item.stock < 0) {

@@ -7,6 +7,8 @@ import {
   finalizeLokifyCheckoutSession,
   getLokifyBillingOverview,
   getLokifyCheckoutSession,
+  requestLokifyPlanChange,
+  submitLokifySubscriptionContactRequest,
   handleStripeWebhook,
 } from "../services/lokify-subscription.service.js";
 
@@ -18,6 +20,20 @@ export const getLokifyBilling = asyncHandler(async (req, res) => {
 export const postLokifyCheckoutSession = asyncHandler(async (req, res) => {
   const session = await createLokifyCheckoutSession(req.user, req.body.planId);
   res.status(201).json(session);
+});
+
+export const postLokifyPlanChangeRequest = asyncHandler(async (req, res) => {
+  const result = await requestLokifyPlanChange(
+    req.user.id,
+    req.body.planId,
+    req.body.note
+  );
+  res.status(201).json(result);
+});
+
+export const postLokifySubscriptionContactRequest = asyncHandler(async (req, res) => {
+  const result = await submitLokifySubscriptionContactRequest(req.user, req.body);
+  res.status(201).json(result);
 });
 
 export const getLokifyCheckout = asyncHandler(async (req, res) => {

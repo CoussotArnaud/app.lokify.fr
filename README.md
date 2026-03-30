@@ -26,6 +26,15 @@ APP.LOKIFY est une V1 de SaaS de gestion et de reservation de materiel avec fron
 4. Charger les donnees de demonstration avec `database/seeds/seed.sql`.
 5. Lancer l'API puis le frontend.
 
+## Preview / preproduction Vercel
+
+- Frontend Vercel : projet `app-lokify-fr`
+- Backend Vercel : projet `app-lokify-fr-backend`
+- Les domaines `app.lokify.fr` et `api.app.lokify.fr` restent la reference actuelle. Pour une preproduction non definitive, privilegier les URLs preview Vercel.
+- Script utile : `powershell -ExecutionPolicy Bypass -File .\scripts\deploy-preview.ps1`
+- Le script deploie d'abord le backend preview, puis le frontend preview branche sur cette API.
+- Le backend accepte aussi les origins preview Vercel si `ALLOW_VERCEL_PREVIEW_ORIGINS=true`.
+
 ## Comptes de demonstration
 
 - Super admin : `team@lokify.fr` / `admin`

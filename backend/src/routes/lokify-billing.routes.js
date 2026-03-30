@@ -7,12 +7,16 @@ import {
   postCancelLokifyCheckout,
   postCompleteSimulationCheckout,
   postFinalizeLokifyCheckout,
+  postLokifySubscriptionContactRequest,
+  postLokifyPlanChangeRequest,
   postLokifyCheckoutSession,
 } from "../controllers/lokify-billing.controller.js";
 
 const router = Router();
 
 router.get("/overview", getLokifyBilling);
+router.post("/plan-change-request", postLokifyPlanChangeRequest);
+router.post("/contact-request", postLokifySubscriptionContactRequest);
 router.post("/checkout-session", postLokifyCheckoutSession);
 router.get("/checkout-sessions/:sessionId", getLokifyCheckout);
 router.post("/checkout-sessions/:sessionId/finalize", postFinalizeLokifyCheckout);

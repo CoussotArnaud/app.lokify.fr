@@ -21,6 +21,24 @@ const isSameOrNestedPath = (pathname, href) =>
 export const isSuperAdmin = (user) => user?.account_role === "super_admin";
 export const isProvider = (user) => user?.account_role === "provider";
 
+export const getWorkspaceUserLabel = (user, fallback = "Espace LOKIFY") => {
+  if (isSuperAdmin(user)) {
+    return "Super Admin";
+  }
+
+  const fullName = String(user?.full_name || "").trim();
+  return fullName || fallback;
+};
+
+export const getWorkspaceUserAvatarLabel = (user, fallback = "LK") => {
+  if (isSuperAdmin(user)) {
+    return "SA";
+  }
+
+  const fullName = String(user?.full_name || "").trim();
+  return fullName.slice(0, 2).toUpperCase() || fallback;
+};
+
 export const canAccessOperationalModules = (user) =>
   isProvider(user) && Boolean(user?.permissions?.canAccessOperationalModules);
 

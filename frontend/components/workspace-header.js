@@ -7,7 +7,11 @@ import { useAuth } from "./auth-provider";
 import BrandLogo from "./brand-logo";
 import Icon from "./icon";
 import QuickActionsMenu from "./quick-actions-menu";
-import { getWorkspaceHomePath } from "../lib/access";
+import {
+  getWorkspaceHomePath,
+  getWorkspaceUserAvatarLabel,
+  getWorkspaceUserLabel,
+} from "../lib/access";
 import {
   getAccountMenuItems,
   getMainNavigation,
@@ -23,6 +27,8 @@ export default function WorkspaceHeader() {
   const accountMenuItems = getAccountMenuItems(user);
   const quickActionConfig = getQuickActionConfig(user);
   const quickActionItems = quickActionConfig.items;
+  const userLabel = getWorkspaceUserLabel(user);
+  const userAvatarLabel = getWorkspaceUserAvatarLabel(user);
 
   return (
     <header className="workspace-header">
@@ -59,9 +65,9 @@ export default function WorkspaceHeader() {
 
           <details className="user-menu">
             <summary className="user-trigger">
-              <span className="user-avatar">{user?.full_name?.slice(0, 2)?.toUpperCase() || "LK"}</span>
+              <span className="user-avatar">{userAvatarLabel}</span>
               <span className="user-meta">
-                <strong>{user?.full_name || "Espace LOKIFY"}</strong>
+                <strong>{userLabel}</strong>
                 <small>{user?.email || "contact@lokify.app"}</small>
               </span>
               <Icon name="chevronDown" size={12} />

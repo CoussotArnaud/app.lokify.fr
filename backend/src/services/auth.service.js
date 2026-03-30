@@ -4,7 +4,10 @@ import crypto from "crypto";
 
 import { query } from "../config/db.js";
 import env from "../config/env.js";
-import { ensureUserSettingsRecords, getUserAccountProfile } from "./account-profile.service.js";
+import {
+  ensureUserSettingsRecords,
+  getUserAccountProfile,
+} from "./account-profile.service.js";
 import {
   requestPasswordResetForEmail,
   resetPasswordWithToken,
@@ -19,6 +22,17 @@ import {
 const normalizeText = (value) => String(value || "").trim();
 const coalesceText = (...values) => values.map(normalizeText).find(Boolean) || null;
 const normalizedSuperAdminEmail = String(env.lokifySuperAdminEmail || "").trim().toLowerCase();
+const isArchivedProviderAccount = (user) =>
+  user?.account_role === "provider" && Boolean(user?.archived_at);
+
+const assertProviderAccountNotArchived = (user) => {
+  if (isArchivedProviderAccount(user)) {
+    throw new HttpError(
+      403,
+      "Ce compte prestataire est archive. Restaurez-le depuis le back-office avant toute reconnexion."
+    );
+  }
+};
 
 const buildToken = (userId, authContext = {}) =>
   jwt.sign(
@@ -61,6 +75,7 @@ export const ensureSuperAdminAccount = async () => {
   const { rows } = await query(
     `
       SELECT id, full_name, password_hash, account_role, provider_status
+      , archived_at
       FROM users
       WHERE email = $1
       LIMIT 1
@@ -180,16 +195,30 @@ export const registerUser = async ({
   const existingUser = await query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
 
   if (existingUser.rows[0]) {
-    throw new HttpError(409, "Un utilisateur avec cet email existe deja.");
+    const archivedConflict = await query(
+      "SELECT archived_at FROM users WHERE id = $1 LIMIT 1",
+      [existingUser.rows[0].id]
+    );
+    throw new HttpError(
+      409,
+      archivedConflict.rows[0]?.archived_at
+        ? "Un compte prestataire archive existe deja avec cet email. Restaurez-le au lieu d'en creer un nouveau."
+        : "Un utilisateur avec cet email existe deja."
+    );
   }
 
   const existingSiret = await query(
-    "SELECT id FROM users WHERE siret = $1 AND account_role = 'provider' LIMIT 1",
+    "SELECT id, archived_at FROM users WHERE siret = $1 AND account_role = 'provider' LIMIT 1",
     [normalizedSiret]
   );
 
   if (existingSiret.rows[0]) {
-    throw new HttpError(409, "Un compte prestataire avec ce SIRET existe deja.");
+    throw new HttpError(
+      409,
+      existingSiret.rows[0].archived_at
+        ? "Un compte prestataire archive existe deja avec ce SIRET. Restaurez-le au lieu d'en creer un nouveau."
+        : "Un compte prestataire avec ce SIRET existe deja."
+    );
   }
 
   const verifiedCompanyIdentity = await getVerifiedCompanyIdentity(normalizedSiret);
@@ -287,6 +316,8 @@ export const loginUser = async ({ email, password }) => {
   if (!user) {
     throw new HttpError(401, "Identifiants invalides.");
   }
+
+  assertProviderAccountNotArchived(user);
 
   const isValidPassword = await bcrypt.compare(password, user.password_hash);
 

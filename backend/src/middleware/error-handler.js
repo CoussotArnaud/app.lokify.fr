@@ -8,13 +8,18 @@ export const errorHandler = (error, _req, res, _next) => {
   }
 
   const statusCode = error.statusCode || 500;
+  const isTrustedHttpError = error?.name === "HttpError";
 
   if (statusCode >= 500) {
     console.error(error);
   }
 
   return res.status(statusCode).json({
-    message: error.message || "Une erreur interne est survenue.",
+    message:
+      statusCode >= 500 && !isTrustedHttpError
+        ? "Une erreur interne est survenue."
+        : error.message || "Une erreur interne est survenue.",
+    code: isTrustedHttpError ? error.code || undefined : undefined,
+    details: isTrustedHttpError && statusCode < 500 ? error.details || undefined : undefined,
   });
 };
-

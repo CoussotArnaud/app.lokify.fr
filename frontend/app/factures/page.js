@@ -9,14 +9,10 @@ import { formatCurrency, formatDateTime } from "../../lib/date";
 
 export default function InvoicesPage() {
   const workspace = useLokifyWorkspace();
-  const invoices = workspace.reservations.map((reservation) => ({
-    id: reservation.id,
-    reference: `FAC-${reservation.id.slice(0, 6).toUpperCase()}`,
-    client: reservation.client_name,
-    amount: reservation.total_amount,
-    issued_at: reservation.start_date,
-    status: reservation.status === "confirmed" || reservation.status === "completed" ? "A regler" : "En preparation",
-  }));
+  const invoices = workspace.invoiceDocuments || [];
+  const dueInvoices = invoices.filter((invoice) => invoice.status === "due");
+  const locationAmount = invoices.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+  const depositAmount = invoices.reduce((sum, invoice) => sum + Number(invoice.deposit_amount || 0), 0);
 
   return (
     <AppShell>
@@ -24,24 +20,56 @@ export default function InvoicesPage() {
         <div className="page-header">
           <div>
             <p className="eyebrow">Factures</p>
-            <h3>Une base propre pour le suivi de la facturation sans casser votre espace actuel.</h3>
-            <p>La structure est volontairement simple, lisible et deja connectee a vos reservations.</p>
+            <h3>Retrouvez vos documents de facturation lies aux reservations.</h3>
+            <p>Le montant de location reste distinct de la caution pour une lecture claire des dossiers.</p>
           </div>
         </div>
 
-        <Panel title="Factures a suivre" description="References, clients, dates et statuts dans une vue plus claire.">
+        <div className="kpi-band">
+          <div className="kpi-tile">
+            <strong>{dueInvoices.length}</strong>
+            <span>facture(s) a suivre</span>
+          </div>
+          <div className="kpi-tile">
+            <strong>{formatCurrency(locationAmount)}</strong>
+            <span>location suivie</span>
+          </div>
+          <div className="kpi-tile">
+            <strong>{formatCurrency(depositAmount)}</strong>
+            <span>cautions visibles a part</span>
+          </div>
+        </div>
+
+        <Panel title="Factures liees aux reservations" description="References, reservation source, client, montant de location et caution separee.">
           <DataTable
             rows={invoices}
-            emptyMessage="Aucune facture a suivre."
+            emptyMessage={workspace.loading ? "Chargement des factures..." : "Aucune facture a suivre."}
             columns={[
-              { key: "reference", label: "Reference" },
+              { key: "reference", label: "Facture" },
+              { key: "reservation_reference", label: "Reservation" },
               { key: "client", label: "Client" },
-              { key: "issued_at", label: "Date", render: (row) => formatDateTime(row.issued_at) },
-              { key: "amount", label: "Montant", render: (row) => formatCurrency(row.amount) },
+              { key: "product", label: "Produit" },
+              {
+                key: "issued_at",
+                label: "Date",
+                render: (row) => formatDateTime(row.issued_at),
+              },
+              {
+                key: "amount",
+                label: "Location",
+                render: (row) => formatCurrency(row.amount),
+              },
+              {
+                key: "deposit_amount",
+                label: "Caution",
+                render: (row) => formatCurrency(row.deposit_amount),
+              },
               {
                 key: "status",
                 label: "Statut",
-                render: (row) => <StatusPill tone={row.status === "A regler" ? "warning" : "neutral"}>{row.status}</StatusPill>,
+                render: (row) => (
+                  <StatusPill tone={row.status_tone || "neutral"}>{row.status_label}</StatusPill>
+                ),
               },
             ]}
           />

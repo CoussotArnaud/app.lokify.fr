@@ -6,12 +6,16 @@ import test from "node:test";
 import { query } from "../src/config/db.js";
 import { loginUser } from "../src/services/auth.service.js";
 import {
+  archiveProviderFromAdmin,
   createProviderFromAdmin,
   getAdminOverview,
   getProviderForAdmin,
+  listProvidersForAdmin,
   requestProviderInvitationFromAdmin,
+  restoreProviderFromAdmin,
   updateProviderFromAdmin,
 } from "../src/services/admin.service.js";
+import { purgeExpiredArchivedRecords } from "../src/services/archive-maintenance.service.js";
 import { requestLokifyPlanChange } from "../src/services/lokify-subscription.service.js";
 import { resetPasswordWithToken } from "../src/services/password-reset.service.js";
 
@@ -219,4 +223,108 @@ test("provider detail exposes read-only business metrics", async () => {
   assert.equal(detailedProvider.business.totalRevenue, 290);
   assert.equal(detailedProvider.business.totalReservations, 2);
   assert.equal(detailedProvider.business.confirmedReservations, 1);
+});
+
+test("super admin archives and restores a provider without deleting linked data", async () => {
+  const uniqueToken = crypto.randomUUID().slice(0, 8);
+  const superAdminId = await getSuperAdminId();
+  const siret = createValidSiret("9234567890000");
+  const provider = await createProviderFromAdmin({
+    company_name: "Prestataire Archive",
+    siret,
+    email: `archive-provider.${uniqueToken}@example.com`,
+  });
+
+  await query(
+    `
+      INSERT INTO clients (
+        id,
+        user_id,
+        first_name,
+        last_name,
+        email
+      )
+      VALUES ($1, $2, 'Client', 'Archive', $3)
+    `,
+    [crypto.randomUUID(), provider.id, `client-provider.${uniqueToken}@example.com`]
+  );
+
+  const archivedProvider = await archiveProviderFromAdmin(provider.id, superAdminId, {
+    archiveReason: "Test archivage super admin",
+  });
+  const activeProviders = await listProvidersForAdmin({ scope: "active" });
+  const archivedProviders = await listProvidersForAdmin({ scope: "archived" });
+  const archivedDetail = await getProviderForAdmin(provider.id);
+
+  assert.equal(archivedProvider.archive.isArchived, true);
+  assert.ok(archivedProvider.archive.archivedAt);
+  assert.ok(archivedProvider.archive.scheduledPurgeAt);
+  assert.ok(
+    !activeProviders.some((entry) => entry.id === provider.id),
+    "Le prestataire archive ne doit plus apparaitre dans la liste active."
+  );
+  assert.ok(
+    archivedProviders.some((entry) => entry.id === provider.id),
+    "Le prestataire archive doit apparaitre dans la liste archivee."
+  );
+  assert.equal(archivedDetail.linked_clients.length, 1);
+
+  const restoredProvider = await restoreProviderFromAdmin(provider.id, superAdminId, {
+    restoreReason: "Test restauration super admin",
+  });
+  const activeProvidersAfterRestore = await listProvidersForAdmin({ scope: "active" });
+
+  assert.equal(restoredProvider.archive.isArchived, false);
+  assert.ok(
+    activeProvidersAfterRestore.some((entry) => entry.id === provider.id),
+    "Le prestataire restaure doit reapparaitre dans la liste active."
+  );
+});
+
+test("purge removes a provider only after the retention deadline and logs the operation", async () => {
+  const uniqueToken = crypto.randomUUID().slice(0, 8);
+  const superAdminId = await getSuperAdminId();
+  const siret = createValidSiret("3334567890000");
+  const provider = await createProviderFromAdmin({
+    company_name: "Prestataire Purge",
+    siret,
+    email: `purge-provider.${uniqueToken}@example.com`,
+  });
+
+  await archiveProviderFromAdmin(provider.id, superAdminId, {
+    archiveReason: "Test purge differee",
+  });
+
+  const pastDate = new Date("2010-01-01T00:00:00.000Z").toISOString();
+  await query(
+    `
+      UPDATE users
+      SET archived_at = $2,
+          scheduled_purge_at = $3
+      WHERE id = $1
+    `,
+    [provider.id, pastDate, pastDate]
+  );
+
+  const purgeResult = await purgeExpiredArchivedRecords({
+    now: "2026-03-29T03:00:00.000Z",
+    purgeTrigger: "test",
+  });
+  const providerLookup = await query("SELECT id FROM users WHERE id = $1 LIMIT 1", [provider.id]);
+  const purgeLog = await query(
+    `
+      SELECT *
+      FROM archive_purge_logs
+      WHERE entity_type = 'provider'
+        AND entity_id = $1
+      ORDER BY purged_at DESC
+      LIMIT 1
+    `,
+    [provider.id]
+  );
+
+  assert.equal(purgeResult.totalPurgedProviders >= 1, true);
+  assert.equal(providerLookup.rows.length, 0);
+  assert.equal(purgeLog.rows.length, 1);
+  assert.equal(purgeLog.rows[0].purge_trigger, "test");
 });

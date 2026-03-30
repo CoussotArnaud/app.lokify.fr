@@ -19,6 +19,11 @@ export const authMiddleware = async (req, _res, next) => {
       displayEmail: payload.displayEmail || null,
     };
     req.user = await getUserAccountProfile(payload.sub, req.authSession);
+
+    if (req.user?.account_role === "provider" && req.user?.archive?.isArchived) {
+      throw new HttpError(403, "Ce compte prestataire est archive et ne peut plus ouvrir de session.");
+    }
+
     next();
   } catch (error) {
     if (error.statusCode === 404) {

@@ -4,7 +4,10 @@ import bcrypt from "bcryptjs";
 import { newDb } from "pg-mem";
 import pg from "pg";
 
+import { ensureAccountSchema } from "./account-schema.js";
+import { ensureCatalogSchema } from "./catalog-schema.js";
 import env from "./env.js";
+import { ensureStorefrontSchema } from "./storefront-schema.js";
 
 const { Pool } = pg;
 
@@ -39,6 +42,13 @@ const createMemoryPool = async () => {
       sirene_verification_status TEXT NOT NULL DEFAULT 'not_checked',
       sirene_verified_at TIMESTAMPTZ,
       sirene_checked_at TIMESTAMPTZ,
+      archived_at TIMESTAMPTZ,
+      archived_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      archive_reason TEXT,
+      scheduled_purge_at TIMESTAMPTZ,
+      restored_at TIMESTAMPTZ,
+      restored_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      restore_reason TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -52,6 +62,13 @@ const createMemoryPool = async () => {
       phone TEXT,
       address TEXT,
       notes TEXT,
+      archived_at TIMESTAMPTZ,
+      archived_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      archive_reason TEXT,
+      scheduled_purge_at TIMESTAMPTZ,
+      restored_at TIMESTAMPTZ,
+      restored_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      restore_reason TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -115,6 +132,16 @@ const createMemoryPool = async () => {
       related_sort_note TEXT,
       catalog_mode TEXT NOT NULL DEFAULT 'location',
       sku TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE storefront_settings (
+      user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      slug TEXT NOT NULL UNIQUE,
+      is_published BOOLEAN NOT NULL DEFAULT FALSE,
+      reservation_approval_mode TEXT NOT NULL DEFAULT 'manual',
+      slug_updated_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -463,6 +490,20 @@ const createMemoryPool = async () => {
       content_base64 TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE archive_purge_logs (
+      id UUID PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id UUID NOT NULL,
+      owner_user_id UUID,
+      archived_at TIMESTAMPTZ,
+      archived_by UUID,
+      archive_reason TEXT,
+      scheduled_purge_at TIMESTAMPTZ,
+      purged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      purge_trigger TEXT NOT NULL DEFAULT 'cron',
+      payload_json TEXT NOT NULL DEFAULT '{}'
     );
   `);
 
@@ -1151,7 +1192,19 @@ const createPostgresPool = () => {
   return new Pool(connectionOptions);
 };
 
-export const pool =
+const configuredPool =
   env.databaseMode === "memory" ? await createMemoryPool() : createPostgresPool();
+
+if (env.databaseMode !== "memory") {
+  await ensureAccountSchema(configuredPool);
+}
+
+await ensureCatalogSchema(configuredPool);
+
+if (env.databaseMode !== "memory") {
+  await ensureStorefrontSchema(configuredPool);
+}
+
+export const pool = configuredPool;
 
 export const query = (text, params = []) => pool.query(text, params);

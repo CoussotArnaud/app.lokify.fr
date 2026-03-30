@@ -16,6 +16,22 @@ const toNumber = (value) => {
 const buildDisplayEmail = (row, authContext = {}) =>
   String(authContext.displayEmail || row.system_email || row.email || "").trim().toLowerCase();
 
+const mapPlanChangeRequest = (row) => {
+  if (!row.requested_lokify_plan_id) {
+    return null;
+  }
+
+  return {
+    requestedPlanId: row.requested_lokify_plan_id,
+    requestedPlanName: row.requested_lokify_plan_name || null,
+    requestedPlanPrice:
+      row.requested_lokify_plan_price === null ? null : toNumber(row.requested_lokify_plan_price),
+    requestedPlanInterval: row.requested_lokify_plan_interval || "month",
+    requestedAt: row.requested_lokify_plan_requested_at || null,
+    note: row.requested_lokify_plan_note || null,
+  };
+};
+
 const hasCurrentSubscriptionAccess = (row) => {
   const subscriptionStatus = String(row.lokify_subscription_status || "inactive").toLowerCase();
   const subscriptionEndAt = row.lokify_subscription_end_at
@@ -68,11 +84,18 @@ const mapProfileRow = (row, authContext = {}) => {
   const providerStatus = row.provider_status || "active";
   const isSuperAdmin = accountRole === "super_admin";
   const isProvider = accountRole === "provider";
+  const isArchived = Boolean(row.archived_at);
+  const planChangeRequest = mapPlanChangeRequest(row);
   const subscriptionHasAccess = isProvider && hasCurrentSubscriptionAccess(row);
   const canAccessOperationalModules =
-    isProvider && providerStatus === "active" && subscriptionHasAccess;
+    isProvider && !isArchived && providerStatus === "active" && subscriptionHasAccess;
   const subscriptionLocked = isProvider ? !canAccessOperationalModules : false;
   const accessRestrictedBySubscription = isProvider ? !canAccessOperationalModules : false;
+  const saasLifecycleStatus = subscriptionHasAccess
+    ? "active"
+    : planChangeRequest
+      ? "pending"
+      : "inactive";
   const customerStripeSecretPreview = row.customer_stripe_secret_key_encrypted
     ? maskSensitiveValue(decryptSecretValue(row.customer_stripe_secret_key_encrypted), {
         start: 8,
@@ -89,6 +112,10 @@ const mapProfileRow = (row, authContext = {}) => {
   return {
     id: row.id,
     full_name: row.full_name,
+    company_name: row.company_name || row.full_name || null,
+    siret: row.siret || null,
+    siren: row.siren || null,
+    commercial_name: row.commercial_name || null,
     first_name: row.first_name || null,
     last_name: row.last_name || null,
     email: displayEmail || row.system_email,
@@ -99,9 +126,24 @@ const mapProfileRow = (row, authContext = {}) => {
     address: row.address || null,
     postal_code: row.postal_code || null,
     city: row.city || null,
+    ape_code: row.ape_code || null,
+    establishment_admin_status: row.establishment_admin_status || null,
+    sirene_verification_status: row.sirene_verification_status || "not_checked",
+    sirene_verified_at: row.sirene_verified_at || null,
+    sirene_checked_at: row.sirene_checked_at || null,
     created_at: row.created_at,
     account_role: accountRole,
     provider_status: providerStatus,
+    archive: {
+      isArchived,
+      archivedAt: row.archived_at || null,
+      archivedBy: row.archived_by || null,
+      archiveReason: row.archive_reason || null,
+      scheduledPurgeAt: row.scheduled_purge_at || null,
+      restoredAt: row.restored_at || null,
+      restoredBy: row.restored_by || null,
+      restoreReason: row.restore_reason || null,
+    },
     is_super_admin: isSuperAdmin,
     is_provider: isProvider,
     session_profile: authContext.sessionProfile || "standard",
@@ -119,6 +161,8 @@ const mapProfileRow = (row, authContext = {}) => {
       billingEnvironment: row.billing_environment || env.lokifyBillingEnvironment,
       cancelAtPeriodEnd: Boolean(row.cancel_at_period_end),
       renewalCanceledAt: row.renewal_canceled_at || null,
+      saasLifecycleStatus,
+      planChangeRequest,
       subscriptionLocked,
       accessRestrictedBySubscription,
     },
@@ -148,17 +192,31 @@ const mapProfileRow = (row, authContext = {}) => {
       canManageProviderSubscriptions: isSuperAdmin,
       canManagePlatformStripe: isSuperAdmin,
       canAccessOperationalModules,
-      canAccessBilling: isProvider,
-      canAccessCustomerPaymentSettings: isProvider,
-      canManageClients: isProvider && providerStatus === "active",
-      canManageReservations: isProvider && providerStatus === "active",
-      canManageCatalog: isProvider && providerStatus === "active",
+      canAccessBilling: isProvider && !isArchived,
+      canAccessCustomerPaymentSettings: isProvider && !isArchived,
+      canManageClients: isProvider && !isArchived && providerStatus === "active",
+      canManageReservations: isProvider && !isArchived && providerStatus === "active",
+      canManageCatalog: isProvider && !isArchived && providerStatus === "active",
       accessRestrictedBySubscription,
     },
   };
 };
 
 export const getUserAccountProfile = async (userId, authContext = {}) => {
+  const { rows: userRows } = await query(
+    `
+      SELECT id
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [userId]
+  );
+
+  if (!userRows[0]) {
+    throw new HttpError(404, "Utilisateur introuvable.");
+  }
+
   await ensureUserSettingsRecords(userId);
 
   const { rows } = await query(
@@ -166,6 +224,10 @@ export const getUserAccountProfile = async (userId, authContext = {}) => {
       SELECT
         users.id,
         users.full_name,
+        users.company_name,
+        users.siret,
+        users.siren,
+        users.commercial_name,
         users.first_name,
         users.last_name,
         users.email AS system_email,
@@ -174,9 +236,21 @@ export const getUserAccountProfile = async (userId, authContext = {}) => {
         users.address,
         users.postal_code,
         users.city,
+        users.ape_code,
+        users.establishment_admin_status,
+        users.sirene_verification_status,
+        users.sirene_verified_at,
+        users.sirene_checked_at,
         users.created_at,
         users.account_role,
         users.provider_status,
+        users.archived_at,
+        users.archived_by,
+        users.archive_reason,
+        users.scheduled_purge_at,
+        users.restored_at,
+        users.restored_by,
+        users.restore_reason,
         lokify_billing_settings.lokify_plan_id,
         lokify_billing_settings.lokify_plan_name,
         lokify_billing_settings.lokify_plan_price,
@@ -184,6 +258,12 @@ export const getUserAccountProfile = async (userId, authContext = {}) => {
         lokify_billing_settings.lokify_subscription_status,
         lokify_billing_settings.lokify_subscription_start_at,
         lokify_billing_settings.lokify_subscription_end_at,
+        lokify_billing_settings.requested_lokify_plan_id,
+        lokify_billing_settings.requested_lokify_plan_name,
+        lokify_billing_settings.requested_lokify_plan_price,
+        lokify_billing_settings.requested_lokify_plan_interval,
+        lokify_billing_settings.requested_lokify_plan_note,
+        lokify_billing_settings.requested_lokify_plan_requested_at,
         lokify_billing_settings.lokify_stripe_customer_id,
         lokify_billing_settings.lokify_stripe_subscription_id,
         lokify_billing_settings.lokify_stripe_checkout_session_id,
@@ -212,10 +292,6 @@ export const getUserAccountProfile = async (userId, authContext = {}) => {
     `,
     [userId]
   );
-
-  if (!rows[0]) {
-    throw new HttpError(404, "Utilisateur introuvable.");
-  }
 
   return mapProfileRow(rows[0], authContext);
 };

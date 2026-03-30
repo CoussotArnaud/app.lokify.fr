@@ -5,6 +5,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "backup": "powershell -ExecutionPolicy Bypass -File .\\scripts\\create-backup.ps1",
+    "deploy:preview": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-preview.ps1",
     "dev": "concurrently -n backend,frontend -c yellow,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:frontend": "npm --prefix frontend run dev -- --port 3001",
     "dev:backend": "npm --prefix backend run dev",

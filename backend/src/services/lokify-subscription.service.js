@@ -5,6 +5,7 @@ import { getLokifyPlanById, lokifyPlanCatalog } from "../config/lokify-plans.js"
 import { query } from "../config/db.js";
 import { ensureUserSettingsRecords, getUserAccountProfile } from "./account-profile.service.js";
 import { getResolvedSuperAdminStripeConfiguration } from "./platform-stripe-settings.service.js";
+import { createSupportTicketForProvider } from "./support.service.js";
 import {
   createStripeCheckoutSession,
   fetchStripeCheckoutSession,
@@ -15,6 +16,16 @@ import HttpError from "../utils/http-error.js";
 
 const checkoutStates = new Set(["pending", "completed", "canceled", "expired"]);
 const stripeManagedStatuses = new Set(["trialing", "active", "past_due", "canceled", "unpaid"]);
+const normalizeContactField = (value) => String(value || "").trim();
+
+const parseDate = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+};
 
 const mapStripeStatusToLokifyStatus = (stripeStatus) => {
   if (stripeStatus === "active") {
@@ -38,6 +49,7 @@ const serializeCheckoutSession = (row) => ({
   sessionId: row.session_id,
   provider: row.provider,
   checkoutState: row.checkout_state,
+  checkoutUrl: row.checkout_url || null,
   plan: {
     id: row.lokify_plan_id,
     name: row.lokify_plan_name,
@@ -48,6 +60,247 @@ const serializeCheckoutSession = (row) => ({
   expiresAt: row.expires_at,
   completedAt: row.completed_at,
 });
+
+const resolveLokifyPaymentStatus = (billing, recentSessions = []) => {
+  const subscriptionStatus = String(billing?.lokifySubscriptionStatus || "inactive")
+    .trim()
+    .toLowerCase();
+  const subscriptionStartAt = parseDate(billing?.lokifySubscriptionStartAt);
+  const subscriptionEndAt = parseDate(billing?.lokifySubscriptionEndAt);
+  const isExpired = subscriptionEndAt ? subscriptionEndAt.getTime() < Date.now() : false;
+  const latestCompletedSession =
+    recentSessions.find((session) => session.checkoutState === "completed") || null;
+  const latestPendingSession =
+    recentSessions.find((session) => session.checkoutState === "pending") || null;
+
+  if (subscriptionStatus === "active") {
+    return {
+      status: "paid",
+      source: "subscription",
+      lastPaymentAt: latestCompletedSession?.completedAt || billing?.lokifySubscriptionStartAt || null,
+      nextPaymentDueAt: billing?.lokifySubscriptionEndAt || null,
+    };
+  }
+
+  if (subscriptionStatus === "trial") {
+    return {
+      status: "trial",
+      source: "subscription",
+      lastPaymentAt: latestCompletedSession?.completedAt || billing?.lokifySubscriptionStartAt || null,
+      nextPaymentDueAt: billing?.lokifySubscriptionEndAt || null,
+    };
+  }
+
+  if (subscriptionStatus === "past_due") {
+    return {
+      status: isExpired ? "expired" : "overdue",
+      source: "subscription",
+      lastPaymentAt: latestCompletedSession?.completedAt || null,
+      nextPaymentDueAt: billing?.lokifySubscriptionEndAt || null,
+    };
+  }
+
+  if (subscriptionStatus === "canceled") {
+    return {
+      status: isExpired ? "expired" : "canceled",
+      source: "subscription",
+      lastPaymentAt: latestCompletedSession?.completedAt || null,
+      nextPaymentDueAt: billing?.lokifySubscriptionEndAt || null,
+    };
+  }
+
+  if (latestPendingSession) {
+    return {
+      status: "pending",
+      source: "checkout",
+      lastPaymentAt: latestCompletedSession?.completedAt || null,
+      nextPaymentDueAt: latestPendingSession.expiresAt || null,
+    };
+  }
+
+  if (billing?.lokifyPlanId) {
+    return {
+      status:
+        subscriptionStartAt && subscriptionStartAt.getTime() > Date.now() ? "pending" : "unpaid",
+      source: "subscription",
+      lastPaymentAt: latestCompletedSession?.completedAt || null,
+      nextPaymentDueAt: billing?.lokifySubscriptionEndAt || null,
+    };
+  }
+
+  return {
+    status: "unknown",
+    source: "none",
+    lastPaymentAt: latestCompletedSession?.completedAt || null,
+    nextPaymentDueAt: null,
+  };
+};
+
+const setLokifyPlanChangeRequest = async ({ userId, plan, note = null }) => {
+  await ensureUserSettingsRecords(userId);
+
+  await query(
+    `
+      UPDATE lokify_billing_settings
+      SET requested_lokify_plan_id = $2,
+          requested_lokify_plan_name = $3,
+          requested_lokify_plan_price = $4,
+          requested_lokify_plan_interval = $5,
+          requested_lokify_plan_note = $6,
+          requested_lokify_plan_requested_at = NOW(),
+          updated_at = NOW()
+      WHERE user_id = $1
+    `,
+    [userId, plan.id, plan.name, plan.price, plan.interval, note]
+  );
+};
+
+const clearLokifyPlanChangeRequest = async (userId) => {
+  await ensureUserSettingsRecords(userId);
+
+  await query(
+    `
+      UPDATE lokify_billing_settings
+      SET requested_lokify_plan_id = NULL,
+          requested_lokify_plan_name = NULL,
+          requested_lokify_plan_price = NULL,
+          requested_lokify_plan_interval = NULL,
+          requested_lokify_plan_note = NULL,
+          requested_lokify_plan_requested_at = NULL,
+          updated_at = NOW()
+      WHERE user_id = $1
+    `,
+    [userId]
+  );
+};
+
+const buildLokifyBillingHistory = (profile, lokifyPayment) => {
+  const billing = profile?.lokifyBilling || {};
+  const items = [];
+
+  if (billing.lokifySubscriptionStartAt) {
+    items.push({
+      id: `subscription-start-${billing.lokifySubscriptionStartAt}`,
+      at: billing.lokifySubscriptionStartAt,
+      label: "Debut d'abonnement",
+      description: billing.lokifyPlanName
+        ? `Activation de la formule ${billing.lokifyPlanName}.`
+        : "Activation de l'abonnement Lokify.",
+    });
+  }
+
+  if (billing.planChangeRequest?.requestedAt) {
+    items.push({
+      id: `plan-request-${billing.planChangeRequest.requestedAt}`,
+      at: billing.planChangeRequest.requestedAt,
+      label: "Demande de changement",
+      description: billing.planChangeRequest.requestedPlanName
+        ? `Demande envoyee pour la formule ${billing.planChangeRequest.requestedPlanName}.`
+        : "Demande de changement de formule envoyee.",
+    });
+  }
+
+  if (lokifyPayment?.lastPaymentAt) {
+    items.push({
+      id: `payment-last-${lokifyPayment.lastPaymentAt}`,
+      at: lokifyPayment.lastPaymentAt,
+      label: "Derniere echeance suivie",
+      description: `Statut de facturation ${lokifyPayment.status || "inconnu"}.`,
+    });
+  }
+
+  if (billing.renewalCanceledAt) {
+    items.push({
+      id: `renewal-stop-${billing.renewalCanceledAt}`,
+      at: billing.renewalCanceledAt,
+      label: "Renouvellement desactive",
+      description: "Le renouvellement automatique a ete desactive sur le compte.",
+    });
+  }
+
+  if (billing.lokifySubscriptionEndAt) {
+    items.push({
+      id: `subscription-end-${billing.lokifySubscriptionEndAt}`,
+      at: billing.lokifySubscriptionEndAt,
+      label: "Prochaine echeance",
+      description: "Date de reference actuelle de la formule Lokify.",
+    });
+  }
+
+  return items.sort((left, right) => new Date(right.at) - new Date(left.at));
+};
+
+const buildPlanContactNote = ({
+  plan,
+  firstName,
+  lastName,
+  company,
+  email,
+  phone,
+  message,
+}) =>
+  [
+    `Formule demandee: ${plan.name} (${plan.id})`,
+    `Nom: ${lastName}`,
+    `Prenom: ${firstName}`,
+    `Societe: ${company}`,
+    `Email de contact: ${email}`,
+    `Telephone: ${phone}`,
+    `Message: ${message || "Aucun message complementaire."}`,
+  ].join("\n");
+
+const validateSubscriptionContactPayload = (payload = {}) => {
+  const firstName = normalizeContactField(payload.firstName);
+  const lastName = normalizeContactField(payload.lastName);
+  const company = normalizeContactField(payload.company);
+  const email = normalizeContactField(payload.email).toLowerCase();
+  const phone = normalizeContactField(payload.phone);
+  const message = normalizeContactField(payload.message);
+
+  if (!firstName) {
+    throw new HttpError(400, "Le prenom est obligatoire.");
+  }
+
+  if (!lastName) {
+    throw new HttpError(400, "Le nom est obligatoire.");
+  }
+
+  if (!company) {
+    throw new HttpError(400, "Le nom de societe est obligatoire.");
+  }
+
+  if (!email || !email.includes("@")) {
+    throw new HttpError(400, "L'email de contact est invalide.");
+  }
+
+  if (!phone) {
+    throw new HttpError(400, "Le telephone est obligatoire.");
+  }
+
+  return {
+    firstName,
+    lastName,
+    company,
+    email,
+    phone,
+    message,
+  };
+};
+
+const listRecentCheckoutSessions = async (userId, limit = 5) => {
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM lokify_checkout_sessions
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2
+    `,
+    [userId, limit]
+  );
+
+  return rows.map(serializeCheckoutSession);
+};
 
 const resolveCheckoutProvider = async () => {
   const platformStripe = await getResolvedSuperAdminStripeConfiguration();
@@ -74,6 +327,47 @@ const getCheckoutSessionRecord = async (userId, sessionId) => {
   }
 
   return rows[0];
+};
+
+const getCurrentLokifyBillingRow = async (userId) => {
+  await ensureUserSettingsRecords(userId);
+
+  const { rows } = await query(
+    `
+      SELECT
+        lokify_plan_id,
+        lokify_plan_name,
+        lokify_subscription_status,
+        lokify_subscription_end_at,
+        lokify_stripe_customer_id,
+        lokify_stripe_subscription_id,
+        cancel_at_period_end
+      FROM lokify_billing_settings
+      WHERE user_id = $1
+      LIMIT 1
+    `,
+    [userId]
+  );
+
+  return rows[0] || null;
+};
+
+const getReusablePendingCheckoutSession = async (userId, planId) => {
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM lokify_checkout_sessions
+      WHERE user_id = $1
+        AND lokify_plan_id = $2
+        AND checkout_state = 'pending'
+        AND (expires_at IS NULL OR expires_at >= NOW())
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [userId, planId]
+  );
+
+  return rows[0] || null;
 };
 
 const upsertCheckoutSessionRecord = async ({
@@ -248,6 +542,8 @@ const activateLokifySubscription = async ({
     cancelAtPeriodEnd: false,
     renewalCanceledAt: null,
   });
+
+  await clearLokifyPlanChangeRequest(userId);
 };
 
 const recordProcessedWebhookEvent = async (eventId, eventType) => {
@@ -310,15 +606,23 @@ const syncStripeSubscriptionStatus = async ({
 };
 
 export const getLokifyBillingOverview = async (userId) => {
-  const [profile, checkoutConfig] = await Promise.all([
+  const [profile, checkoutConfig, recentCheckoutSessions] = await Promise.all([
     getUserAccountProfile(userId),
     resolveCheckoutProvider(),
+    listRecentCheckoutSessions(userId),
   ]);
+  const lokifyPayment = resolveLokifyPaymentStatus(profile.lokifyBilling, recentCheckoutSessions);
+  const history = buildLokifyBillingHistory(profile, lokifyPayment);
 
   return {
     plans: lokifyPlanCatalog,
     currentUser: profile,
-    lokifySubscription: profile.lokifyBilling,
+    lokifySubscription: {
+      ...profile.lokifyBilling,
+      history,
+    },
+    lokifyPayment,
+    recentCheckoutSessions,
     checkout: {
       provider: checkoutConfig.provider,
       billingEnvironment: env.lokifyBillingEnvironment,
@@ -330,11 +634,112 @@ export const getLokifyBillingOverview = async (userId) => {
   };
 };
 
+export const requestLokifyPlanChange = async (userId, planId, note = null) => {
+  const plan = getLokifyPlanById(planId);
+
+  if (!plan) {
+    throw new HttpError(404, "Formule Lokify introuvable.");
+  }
+
+  const profile = await getUserAccountProfile(userId);
+  const currentBilling = profile.lokifyBilling || {};
+  const requestedNote = String(note || "").trim() || null;
+  const activeStatuses = new Set(["active", "trial"]);
+
+  if (
+    currentBilling.lokifyPlanId === plan.id &&
+    activeStatuses.has(String(currentBilling.lokifySubscriptionStatus || "inactive").toLowerCase())
+  ) {
+    throw new HttpError(400, "Cette formule est deja active sur le compte.");
+  }
+
+  await setLokifyPlanChangeRequest({
+    userId,
+    plan,
+    note: requestedNote,
+  });
+
+  return {
+    currentUser: await getUserAccountProfile(userId),
+    requestedPlan: plan,
+  };
+};
+
+export const submitLokifySubscriptionContactRequest = async (user, payload = {}) => {
+  const plan = getLokifyPlanById(payload.planId);
+
+  if (!plan) {
+    throw new HttpError(404, "Formule Lokify introuvable.");
+  }
+
+  const contact = validateSubscriptionContactPayload(payload);
+  const note = buildPlanContactNote({
+    plan,
+    ...contact,
+  });
+  const requestResult = await requestLokifyPlanChange(user.id, plan.id, note);
+  const supportResult = await createSupportTicketForProvider(user, {
+    category: "billing",
+    subject: `Demande abonnement - ${plan.name}`,
+    message: note,
+  });
+
+  return {
+    currentUser: requestResult.currentUser,
+    requestedPlan: requestResult.requestedPlan,
+    supportTicket: supportResult.ticket
+      ? {
+          id: supportResult.ticket.id,
+          reference: supportResult.ticket.reference,
+          subject: supportResult.ticket.subject,
+          status: supportResult.ticket.status,
+          created_at: supportResult.ticket.created_at,
+        }
+      : null,
+  };
+};
+
 export const createLokifyCheckoutSession = async (user, planId) => {
   const plan = getLokifyPlanById(planId);
 
   if (!plan) {
     throw new HttpError(404, "Formule Lokify introuvable.");
+  }
+
+  const currentBilling = await getCurrentLokifyBillingRow(user.id);
+  const currentSubscriptionStatus = String(
+    currentBilling?.lokify_subscription_status || "inactive"
+  ).toLowerCase();
+  const currentPeriodEnd = parseDate(currentBilling?.lokify_subscription_end_at);
+  const currentPeriodIsValid =
+    !currentPeriodEnd || currentPeriodEnd.getTime() >= Date.now();
+  const isCurrentPlanActive =
+    currentBilling?.lokify_plan_id === plan.id &&
+    ["active", "trial"].includes(currentSubscriptionStatus) &&
+    currentPeriodIsValid;
+
+  if (isCurrentPlanActive) {
+    throw new HttpError(400, "Cette formule est deja active sur le compte.");
+  }
+
+  const reusableSession = await getReusablePendingCheckoutSession(user.id, plan.id);
+
+  if (reusableSession) {
+    return reusableSession.provider === "stripe"
+      ? {
+          provider: reusableSession.provider,
+          sessionId: reusableSession.session_id,
+          checkoutUrl: reusableSession.checkout_url,
+          billingEnvironment: env.lokifyBillingEnvironment,
+        }
+      : {
+          provider: reusableSession.provider,
+          sessionId: reusableSession.session_id,
+          redirectPath: `/abonnement/paiement?sessionId=${encodeURIComponent(
+            reusableSession.session_id
+          )}`,
+          billingEnvironment: env.lokifyBillingEnvironment,
+        };
   }
 
   const checkoutConfig = await resolveCheckoutProvider();
@@ -344,7 +749,7 @@ export const createLokifyCheckoutSession = async (user, planId) => {
       secretKey: checkoutConfig.stripe.secretKey,
       user,
       plan,
-      existingCustomerId: null,
+      existingCustomerId: currentBilling?.lokify_stripe_customer_id || null,
       stripePriceId: checkoutConfig.stripe.priceIds?.[plan.id] || null,
     });
 
@@ -385,7 +790,7 @@ export const createLokifyCheckoutSession = async (user, planId) => {
   return {
     provider: checkoutConfig.provider,
     sessionId,
-    redirectPath: `/abonnement/checkout-test?sessionId=${encodeURIComponent(sessionId)}`,
+    redirectPath: `/abonnement/paiement?sessionId=${encodeURIComponent(sessionId)}`,
     billingEnvironment: env.lokifyBillingEnvironment,
   };
 };
@@ -447,7 +852,7 @@ export const completeSimulationCheckoutSession = async (userId, sessionId) => {
   const session = await getCheckoutSessionRecord(userId, sessionId);
 
   if (session.provider !== "simulation") {
-    throw new HttpError(400, "Cette session ne peut pas etre finalisee localement.");
+    throw new HttpError(400, "Cette session ne peut pas etre finalisee depuis cette page.");
   }
 
   if (session.checkout_state === "completed") {
@@ -460,7 +865,7 @@ export const completeSimulationCheckoutSession = async (userId, sessionId) => {
   const plan = getLokifyPlanById(session.lokify_plan_id);
 
   if (!plan) {
-    throw new HttpError(500, "La formule de la session test est introuvable.");
+    throw new HttpError(500, "La formule associee a cette session est introuvable.");
   }
 
   await activateLokifySubscription({

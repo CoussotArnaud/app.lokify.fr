@@ -3,8 +3,23 @@ import { query } from "../config/db.js";
 const toNumber = (value) => Number(value || 0);
 
 export const getDashboardOverview = async (userId) => {
-  const [reservationsResult, stockResult, recentResult, upcomingResult] = await Promise.all([
-    query("SELECT item_id, status, total_amount FROM reservations WHERE user_id = $1", [userId]),
+  const [
+    reservationsResult,
+    reservationLinesResult,
+    stockResult,
+    recentResult,
+    upcomingResult,
+  ] = await Promise.all([
+    query("SELECT id, item_id, status, total_amount FROM reservations WHERE user_id = $1", [userId]),
+    query(
+      `
+        SELECT reservation_lines.reservation_id, reservation_lines.item_id
+        FROM reservation_lines
+        INNER JOIN reservations ON reservations.id = reservation_lines.reservation_id
+        WHERE reservations.user_id = $1
+      `,
+      [userId]
+    ),
     query("SELECT COALESCE(SUM(stock), 0) AS total_stock FROM items WHERE user_id = $1", [userId]),
     query(
       `
@@ -48,15 +63,32 @@ export const getDashboardOverview = async (userId) => {
   ]);
 
   const reservations = reservationsResult.rows;
-  const activeStatuses = new Set(["draft", "confirmed", "completed"]);
+  const reservationLines = reservationLinesResult.rows;
+  const activeStatuses = new Set(["draft", "confirmed", "completed", "pending"]);
   const revenueStatuses = new Set(["confirmed", "completed"]);
-  const usedItems = new Set(
-    reservations.filter((reservation) => activeStatuses.has(reservation.status)).map((reservation) => reservation.item_id)
-  );
+  const usedItems = new Set();
+
+  reservations
+    .filter((reservation) => activeStatuses.has(reservation.status))
+    .forEach((reservation) => {
+      const linkedLines = reservationLines.filter((line) => line.reservation_id === reservation.id);
+
+      if (linkedLines.length) {
+        linkedLines.forEach((line) => usedItems.add(line.item_id));
+        return;
+      }
+
+      if (reservation.item_id) {
+        usedItems.add(reservation.item_id);
+      }
+    });
+
   const totalRevenue = reservations
     .filter((reservation) => revenueStatuses.has(reservation.status))
     .reduce((sum, reservation) => sum + Number(reservation.total_amount || 0), 0);
-  const draftReservations = reservations.filter((reservation) => reservation.status === "draft").length;
+  const draftReservations = reservations.filter((reservation) =>
+    ["draft", "pending"].includes(reservation.status)
+  ).length;
 
   return {
     stats: {

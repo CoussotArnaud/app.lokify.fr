@@ -104,6 +104,7 @@ const env = {
   smtpSecure: parseBoolean(process.env.SMTP_SECURE, false),
   smtpUser: process.env.SMTP_USER || "",
   smtpPassword: process.env.SMTP_PASSWORD || "",
+  cronSecret: process.env.CRON_SECRET || "",
   passwordResetBaseUrl:
     process.env.PASSWORD_RESET_BASE_URL ||
     `${process.env.CLIENT_URL || "http://localhost:3001"}/reset-password`,
@@ -138,6 +139,10 @@ if (env.isProductionRuntime) {
   assertProductionRequirement(
     hasExplicitEnv("LOKIFY_SUPER_ADMIN_PASSWORD") && env.lokifySuperAdminPassword !== "admin",
     "LOKIFY_SUPER_ADMIN_PASSWORD doit etre defini explicitement avec une valeur forte en production."
+  );
+  assertProductionRequirement(
+    hasExplicitEnv("CRON_SECRET"),
+    "CRON_SECRET doit etre defini explicitement en production pour securiser la purge d'archivage."
   );
 }
 

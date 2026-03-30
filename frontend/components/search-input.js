@@ -10,7 +10,7 @@ export default function SearchInput({
 }) {
   return (
     <label className={`search-input ${className}`.trim()}>
-      <Icon name="search" size={16} />
+      <Icon name="search" size={14} />
       <input
         type="search"
         value={value}

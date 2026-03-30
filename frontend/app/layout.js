@@ -4,7 +4,7 @@ import { AuthProvider } from "../components/auth-provider";
 
 export const metadata = {
   title: "LOKIFY",
-  description: "Plateforme SaaS de gestion et reservation de materiel.",
+  description: "Gestion et reservation de materiel pour les professionnels.",
   icons: {
     icon: "/assets/logos/favicon.png",
     shortcut: "/assets/logos/favicon.png",

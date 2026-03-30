@@ -1,5 +1,6 @@
 import asyncHandler from "../utils/async-handler.js";
 import {
+  archiveProviderFromAdmin,
   createProviderFromAdmin,
   deleteProviderFromAdmin,
   getAdminOverview,
@@ -7,6 +8,7 @@ import {
   listProvidersForAdmin,
   requestProviderInvitationFromAdmin,
   requestProviderPasswordResetFromAdmin,
+  restoreProviderFromAdmin,
   updateProviderFromAdmin,
 } from "../services/admin.service.js";
 import {
@@ -19,8 +21,10 @@ export const getAdminOverviewController = asyncHandler(async (_req, res) => {
   res.json(overview);
 });
 
-export const getProvidersController = asyncHandler(async (_req, res) => {
-  const providers = await listProvidersForAdmin();
+export const getProvidersController = asyncHandler(async (req, res) => {
+  const providers = await listProvidersForAdmin({
+    scope: req.query.scope,
+  });
   res.json({ providers });
 });
 
@@ -81,8 +85,24 @@ export const postProviderInvitationController = asyncHandler(async (req, res) =>
 });
 
 export const deleteProviderController = asyncHandler(async (req, res) => {
-  await deleteProviderFromAdmin(req.params.providerId);
+  await deleteProviderFromAdmin(req.params.providerId, req.user.id, {
+    archiveReason: req.body?.archive_reason ?? req.body?.archiveReason,
+  });
   res.status(204).send();
+});
+
+export const postProviderArchiveController = asyncHandler(async (req, res) => {
+  const provider = await archiveProviderFromAdmin(req.params.providerId, req.user.id, {
+    archiveReason: req.body?.archive_reason ?? req.body?.archiveReason,
+  });
+  res.json({ provider });
+});
+
+export const postProviderRestoreController = asyncHandler(async (req, res) => {
+  const provider = await restoreProviderFromAdmin(req.params.providerId, req.user.id, {
+    restoreReason: req.body?.restore_reason ?? req.body?.restoreReason,
+  });
+  res.json({ provider });
 });
 
 export const getSuperAdminStripeSettingsController = asyncHandler(async (_req, res) => {

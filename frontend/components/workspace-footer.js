@@ -8,9 +8,9 @@ export default function WorkspaceFooter() {
       <div className="workspace-footer-inner">
         <Link href="/dashboard" className="workspace-footer-brand">
           <BrandLogo className="brand-logo-footer" />
-          <span>Plateforme SaaS de gestion et reservation de materiel.</span>
+          <span>Gestion et reservation de materiel.</span>
         </Link>
-        <p>Mode demo local actif, structure prete pour industrialisation.</p>
+        <p>Plateforme professionnelle dediee a votre activite.</p>
       </div>
     </footer>
   );

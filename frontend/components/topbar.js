@@ -3,18 +3,20 @@
 import { usePathname } from "next/navigation";
 
 import { useAuth } from "./auth-provider";
+import { getWorkspaceUserLabel } from "../lib/access";
 
 const titles = {
-  "/dashboard": "Piloter votre activité",
+  "/dashboard": "Piloter votre activit\u00e9",
   "/clients": "Centraliser vos clients",
-  "/materiel": "Suivre le matériel disponible",
-  "/reservations": "Organiser les réservations",
+  "/materiel": "Suivre le mat\u00e9riel disponible",
+  "/reservations": "Organiser les r\u00e9servations",
   "/planning": "Visualiser le planning",
 };
 
 export default function Topbar() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const userLabel = getWorkspaceUserLabel(user, "\u00c9quipe LOKIFY");
 
   const dateLabel = new Intl.DateTimeFormat("fr-FR", {
     weekday: "long",
@@ -31,7 +33,7 @@ export default function Topbar() {
 
       <div className="topbar-meta">
         <div>
-          <strong>{user?.full_name || "Équipe LOKIFY"}</strong>
+          <strong>{userLabel}</strong>
           <p>{dateLabel}</p>
         </div>
       </div>

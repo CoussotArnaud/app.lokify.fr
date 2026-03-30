@@ -1,171 +1,230 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import AppShell from "../../components/app-shell";
+import DataTable from "../../components/data-table";
 import MetricCard from "../../components/metric-card";
 import Panel from "../../components/panel";
 import SecondaryNav from "../../components/secondary-nav";
-import useLokifyWorkspace from "../../hooks/use-lokify-workspace";
+import StatusPill from "../../components/status-pill";
+import { apiRequest } from "../../lib/api";
 import { formatCurrency, formatNumber } from "../../lib/date";
 
 const navigationGroups = [
   {
     title: "Global",
     items: [
-      { id: "revenue", label: "Chiffre d'affaires", helper: "Lecture globale et tendances." },
-      { id: "categories", label: "Categories de produits", helper: "Performance par famille." },
+      { id: "revenue", label: "Chiffre d'affaires", helper: "CA location hors cautions." },
+      { id: "categories", label: "Categories", helper: "Lecture par famille de produits." },
     ],
   },
   {
-    title: "Reservations",
+    title: "Operations",
     items: [
-      { id: "reservations", label: "Reservations", helper: "Volumes et statuts." },
-      { id: "deliveries", label: "Livraison", helper: "Charge logistique et tournees." },
+      { id: "reservations", label: "Reservations", helper: "Volumes par statut reel." },
+      { id: "deliveries", label: "Livraisons", helper: "Charge logistique sur la periode." },
+      { id: "products", label: "Produits", helper: "Occupation et capacite utile." },
     ],
   },
   {
-    title: "Produits",
+    title: "Finance",
     items: [
-      { id: "products", label: "Zoom sur vos produits", helper: "Occupation et capacite." },
-      { id: "bestsellers", label: "Best sellers", helper: "Produits les plus demandes." },
-    ],
-  },
-  {
-    title: "Boutique en ligne",
-    items: [{ id: "online", label: "Activite", helper: "Demandes et signaux web." }],
-  },
-  {
-    title: "Marketing",
-    items: [
-      { id: "clients", label: "Vos clients", helper: "Segmentation de la base." },
-      { id: "promotions", label: "Code promotionnel", helper: "Suivi des offres." },
+      { id: "documents", label: "Documents", helper: "Devis, contrats, etats des lieux et factures." },
+      { id: "cash", label: "Caisse", helper: "Revenus location et cautions suivies separement." },
     ],
   },
 ];
 
-const renderBars = (rows, maxValue, formatter = (value) => value) => (
+const initialStatistics = {
+  window_days: 30,
+  period_start: "",
+  period_end: "",
+  metrics: {
+    confirmed_revenue: 0,
+    confirmed_reservations: 0,
+    average_order_value: 0,
+    delivery_assignments: 0,
+    tracked_products: 0,
+    park_usage_rate: 0,
+    documents_to_follow: 0,
+    revenue_to_collect: 0,
+    deposits_tracked: 0,
+  },
+  revenue_by_day: [],
+  category_rows: [],
+  reservation_status_rows: [],
+  delivery_rows: [],
+  bestseller_rows: [],
+  product_rows: [],
+  document_rows: [],
+  cash_rows: [],
+};
+
+const renderBars = (rows, valueKey, formatter) => (
   <div className="bars-list">
-    {rows.map((row) => (
-      <div key={row.id || row.label} className="bar-row">
-        <header>
-          <strong>{row.label}</strong>
-          <span>{formatter(row.value ?? row.amount ?? row.volume ?? row.revenue)}</span>
-        </header>
-        <div className="bar-track">
-          <div
-            className="bar-fill"
-            style={{
-              width: `${Math.max(8, Math.round((((row.value ?? row.amount ?? row.volume ?? row.revenue) || 0) / Math.max(maxValue, 1)) * 100))}%`,
-            }}
-          />
-        </div>
+    {rows.length ? (
+      rows.map((row) => {
+        const maxValue = Math.max(...rows.map((entry) => Number(entry[valueKey] || 0)), 1);
+        const value = Number(row[valueKey] || 0);
+
+        return (
+          <div key={row.id || row.label || row.date} className="bar-row">
+            <header>
+              <strong>{row.label}</strong>
+              <span>{formatter(value)}</span>
+            </header>
+            <div className="bar-track">
+              <div
+                className="bar-fill"
+                style={{
+                  width: `${Math.max(8, Math.round((value / maxValue) * 100))}%`,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })
+    ) : (
+      <div className="empty-state">
+        <strong>Aucune donnee sur cette section</strong>
+        <span>La periode choisie n'a pas encore genere d'activite exploitable ici.</span>
       </div>
-    ))}
+    )}
   </div>
 );
 
 export default function StatisticsPage() {
-  const workspace = useLokifyWorkspace();
   const [activeSection, setActiveSection] = useState("revenue");
-  const [periodLabel, setPeriodLabel] = useState("30 jours");
+  const [windowDays, setWindowDays] = useState(30);
+  const [statistics, setStatistics] = useState(initialStatistics);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadStatistics = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await apiRequest(`/reporting/statistics?window=${windowDays}`);
+
+        if (isMounted) {
+          setStatistics(response);
+        }
+      } catch (requestError) {
+        if (isMounted) {
+          setError(requestError.message || "Impossible de charger les statistiques.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadStatistics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [windowDays]);
 
   const sectionContent = {
     revenue: (
-      <Panel title="Chiffre d'affaires" description="Une lecture executive plus aeree du CA confirme.">
-        {workspace.statistics.revenueByDay.length ? (
-          renderBars(workspace.statistics.revenueByDay, workspace.statistics.maxRevenue, formatCurrency)
-        ) : (
-          <div className="empty-state">
-            <strong>Pas encore d'historique suffisant</strong>
-            <span>Les prochains encaissements alimenteront cette zone.</span>
-          </div>
-        )}
+      <Panel title="CA location" description="Lecture journaliere du chiffre d'affaires confirme, sans jamais inclure les cautions.">
+        {renderBars(statistics.revenue_by_day, "amount", formatCurrency)}
       </Panel>
     ),
     categories: (
-      <Panel title="Categories de produits" description="Identifiez les familles qui portent le plus votre activite.">
-        {renderBars(
-          workspace.statistics.categoryRows.map((row) => ({ ...row, value: row.revenue })),
-          Math.max(...workspace.statistics.categoryRows.map((row) => row.revenue), 1),
-          formatCurrency
-        )}
+      <Panel title="Categories" description="Revenus et volumes reels par famille de produits.">
+        {renderBars(statistics.category_rows, "revenue", formatCurrency)}
       </Panel>
     ),
     reservations: (
-      <Panel title="Reservations" description="Lecture par statut pour piloter les priorites commerciales et operationnelles.">
-        {renderBars(
-          workspace.statistics.reservationStatusRows.map((row) => ({ ...row, value: row.volume })),
-          Math.max(...workspace.statistics.reservationStatusRows.map((row) => row.volume), 1),
-          formatNumber
-        )}
-      </Panel>
-    ),
-    deliveries: (
-      <Panel title="Livraisons" description="La charge logistique reste lisible sans densifier la page.">
-        {renderBars(
-          workspace.statistics.deliveryRows.map((row) => ({ ...row, value: row.volume })),
-          Math.max(...workspace.statistics.deliveryRows.map((row) => row.volume), 1),
-          formatNumber
-        )}
-      </Panel>
-    ),
-    products: (
-      <Panel title="Zoom sur vos produits" description="Occupation du parc, capacite mobilisable et potentiel restant.">
-        <div className="kpi-band">
-          <div className="kpi-tile">
-            <strong>{workspace.metrics.rentedUnits}</strong>
-            <span>produits actuellement engages</span>
-          </div>
-          <div className="kpi-tile">
-            <strong>{workspace.metrics.availableUnits}</strong>
-            <span>unites encore disponibles</span>
-          </div>
-          <div className="kpi-tile">
-            <strong>{workspace.metrics.unavailableUnits}</strong>
-            <span>indisponibles ou en maintenance</span>
-          </div>
-          <div className="kpi-tile">
-            <strong>{workspace.metrics.parkUsageRate}%</strong>
-            <span>taux d'occupation du parc</span>
-          </div>
+      <Panel title="Reservations" description="Distribution des dossiers sur la periode selon vos statuts personnalises.">
+        <div className="bars-list">
+          {statistics.reservation_status_rows.length ? (
+            statistics.reservation_status_rows.map((row) => (
+              <div key={row.id} className="bar-row">
+                <header>
+                  <StatusPill tone="neutral" color={row.color}>
+                    {row.label}
+                  </StatusPill>
+                  <span>{formatNumber(row.volume)}</span>
+                </header>
+                <div className="bar-track">
+                  <div
+                    className="bar-fill"
+                    style={{
+                      width: `${Math.max(
+                        8,
+                        Math.round(
+                          (Number(row.volume || 0) /
+                            Math.max(...statistics.reservation_status_rows.map((entry) => Number(entry.volume || 0)), 1)) *
+                            100
+                        )
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">
+              <strong>Aucune reservation sur la periode</strong>
+              <span>Les prochaines creations de dossiers alimenteront cette vue.</span>
+            </div>
+          )}
         </div>
       </Panel>
     ),
-    bestsellers: (
-      <Panel title="Best sellers" description="Les produits les plus demandes restent immediatement identifiables.">
-        {renderBars(
-          workspace.statistics.bestsellerRows.map((row) => ({ ...row, value: row.volume })),
-          Math.max(...workspace.statistics.bestsellerRows.map((row) => row.volume), 1),
-          formatNumber
-        )}
+    deliveries: (
+      <Panel title="Livraisons" description="Tournées et affectations reelles sur la periode selectionnee.">
+        {renderBars(statistics.delivery_rows, "volume", formatNumber)}
       </Panel>
     ),
-    online: (
-      <Panel title="Activite boutique en ligne" description="Une base propre pour suivre votre futur front de location.">
-        {renderBars(
-          workspace.statistics.onlineRows.map((row) => ({ ...row, value: row.value })),
-          Math.max(...workspace.statistics.onlineRows.map((row) => row.value), 1),
-          formatNumber
-        )}
+    products: (
+      <Panel title="Produits" description="Occupation courante et capacite utile pour les produits les plus exposes.">
+        <DataTable
+          rows={statistics.product_rows}
+          emptyMessage="Aucune disponibilite produit a afficher."
+          columns={[
+            { key: "label", label: "Produit" },
+            {
+              key: "reserved_quantity",
+              label: "Reserve",
+              render: (row) => formatNumber(row.reserved_quantity),
+            },
+            {
+              key: "available_quantity",
+              label: "Disponible",
+              render: (row) => formatNumber(row.available_quantity),
+            },
+            {
+              key: "blocked_quantity",
+              label: "Bloque",
+              render: (row) => formatNumber(row.blocked_quantity),
+            },
+            {
+              key: "usage_rate",
+              label: "Occupation",
+              render: (row) => `${formatNumber(row.usage_rate)}%`,
+            },
+          ]}
+        />
       </Panel>
     ),
-    clients: (
-      <Panel title="Vos clients" description="Lecture segmentee de la base relationnelle pour le marketing et la conversion.">
-        {renderBars(
-          workspace.statistics.clientRows.map((row) => ({ ...row, value: row.value })),
-          Math.max(...workspace.statistics.clientRows.map((row) => row.value), 1),
-          formatNumber
-        )}
+    documents: (
+      <Panel title="Documents" description="Volume reel des documents rattaches a vos reservations.">
+        {renderBars(statistics.document_rows, "volume", formatNumber)}
       </Panel>
     ),
-    promotions: (
-      <Panel title="Codes promotionnels" description="Suivi des remises et des revenus generes par les offres.">
-        {renderBars(
-          workspace.statistics.promotionRows.map((row) => ({ ...row, value: row.revenue })),
-          Math.max(...workspace.statistics.promotionRows.map((row) => row.revenue), 1),
-          formatCurrency
-        )}
+    cash: (
+      <Panel title="Caisse" description="Comparatif clair entre revenus de location suivis et cautions, sans melanger les deux.">
+        {renderBars(statistics.cash_rows, "amount", formatCurrency)}
       </Panel>
     ),
   };
@@ -176,53 +235,51 @@ export default function StatisticsPage() {
         <div className="page-header">
           <div>
             <p className="eyebrow">Statistiques</p>
-            <h3>Un pilotage plus lisible, plus aere et plus coherent avec le reste du SaaS.</h3>
-            <p>Les sections sont mieux structurees et utilisent mieux la largeur disponible pour une lecture immediate.</p>
+            <h3>Des statistiques reelles reliees a vos reservations, documents et encaissements.</h3>
+            <p>La caution reste toujours isolee du chiffre d'affaires pour garder un pilotage financier propre.</p>
           </div>
           <div className="page-header-actions">
-            <select value={periodLabel} onChange={(event) => setPeriodLabel(event.target.value)}>
-              <option value="7 jours">7 jours</option>
-              <option value="30 jours">30 jours</option>
-              <option value="90 jours">90 jours</option>
+            <select value={String(windowDays)} onChange={(event) => setWindowDays(Number(event.target.value))}>
+              <option value="7">7 jours</option>
+              <option value="30">30 jours</option>
+              <option value="90">90 jours</option>
             </select>
           </div>
         </div>
 
         <section className="metric-grid">
-          <MetricCard icon="euro" label="Chiffre d'affaires" value={formatCurrency(workspace.metrics.totalRevenue)} helper={`Periode ${periodLabel.toLowerCase()}`} tone="success" />
-          <MetricCard icon="chart" label="Rentabilite" value={formatCurrency(workspace.metrics.profitability)} helper="Projection a partir de la base actuelle" tone="info" />
-          <MetricCard icon="box" label="Produits sortis" value={workspace.metrics.rentedUnits} helper="Unites engagees" tone="warning" />
-          <MetricCard icon="catalog" label="Parc loue" value={`${workspace.metrics.parkUsageRate}%`} helper="Taux d'occupation du stock" tone="success" />
+          <MetricCard icon="euro" label="CA confirme" value={formatCurrency(statistics.metrics.confirmed_revenue)} helper="Locations confirmees, cautions exclues" tone="success" />
+          <MetricCard icon="calendar" label="Reservations confirmees" value={statistics.metrics.confirmed_reservations} helper="Dossiers sur la periode" tone="info" />
+          <MetricCard icon="document" label="Documents a suivre" value={statistics.metrics.documents_to_follow} helper="Docs non clos ou a preparer" tone="warning" />
+          <MetricCard icon="bill" label="Encaissements location" value={formatCurrency(statistics.metrics.revenue_to_collect)} helper="Montants de location a suivre" tone="success" />
         </section>
 
-        <section className="subnav-layout">
-          <SecondaryNav title="Navigation statistiques" groups={navigationGroups} activeId={activeSection} onChange={setActiveSection} />
+        {error ? (
+          <Panel title="Erreur de chargement" description={error}>
+            <div className="empty-state">
+              <strong>Impossible de charger les statistiques</strong>
+              <span>Verifiez la connexion au service puis rechargez la page.</span>
+            </div>
+          </Panel>
+        ) : loading ? (
+          <Panel title="Chargement des statistiques" description="Analyse des donnees en cours.">
+            <div className="empty-state">
+              <strong>Chargement en cours</strong>
+              <span>Les reservations, documents et ecritures de caisse arrivent dans quelques instants.</span>
+            </div>
+          </Panel>
+        ) : (
+          <section className="subnav-layout">
+            <SecondaryNav
+              title="Navigation statistiques"
+              groups={navigationGroups}
+              activeId={activeSection}
+              onChange={setActiveSection}
+            />
 
-          <div className="page-stack">
-            <Panel title="Vue de synthese" description="Une bande de recap avant d'entrer dans la sous-section choisie.">
-              <div className="kpi-band">
-                <div className="kpi-tile">
-                  <strong>{workspace.reservations.length}</strong>
-                  <span>reservations analysees</span>
-                </div>
-                <div className="kpi-tile">
-                  <strong>{workspace.clients.length}</strong>
-                  <span>clients dans la base</span>
-                </div>
-                <div className="kpi-tile">
-                  <strong>{workspace.deliveries.length}</strong>
-                  <span>tournees structurees</span>
-                </div>
-                <div className="kpi-tile">
-                  <strong>{workspace.products.length}</strong>
-                  <span>produits suivis</span>
-                </div>
-              </div>
-            </Panel>
-
-            {sectionContent[activeSection]}
-          </div>
-        </section>
+            <div className="page-stack">{sectionContent[activeSection]}</div>
+          </section>
+        )}
       </div>
     </AppShell>
   );

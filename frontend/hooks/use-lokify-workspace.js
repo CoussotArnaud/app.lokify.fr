@@ -5,12 +5,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../components/auth-provider";
 import { apiRequest } from "../lib/api";
 import {
-  categoryBlueprints,
-  deliveryTemplates,
-  packBlueprints,
+  buildReservationStatusMeta,
+  defaultReservationStatuses,
   productStatusMeta,
   promotionExamples,
-  reservationStatusMeta,
+  reservationDepositStatusMeta,
   salesChannelExamples,
   toolboxModules,
 } from "../lib/lokify-data";
@@ -33,13 +32,37 @@ const initialState = {
   mutating: false,
   error: "",
   overview: initialOverview,
+  reportingOverview: {
+    documents: [],
+    invoices: [],
+    cash: {
+      entries: [],
+      summary: {
+        revenue_amount: 0,
+        deposit_amount: 0,
+        pending_revenue_count: 0,
+        blocked_deposits_count: 0,
+        deposits_to_release_count: 0,
+        tracked_amount: 0,
+      },
+    },
+  },
   clients: [],
+  catalogCategories: [],
+  catalogPacks: [],
+  customStatuses: [],
+  deliveryTours: [],
   items: [],
+  itemProfiles: [],
+  productUnits: [],
   reservations: [],
+  stockMovements: [],
+  taxRates: [],
 };
 
 const freeMailDomains = ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "orange.fr"];
 const professionalHints = ["event", "studio", "agence", "association", "entreprise", "production"];
+const EMPTY_ARRAY = [];
 
 const slugify = (value) =>
   String(value || "")
@@ -50,6 +73,54 @@ const slugify = (value) =>
     .replace(/^-+|-+$/g, "");
 
 const normalizeNumber = (value) => Number(value || 0);
+const ensureArray = (value, fallback = EMPTY_ARRAY) => (Array.isArray(value) ? value : fallback);
+const buildQueryString = (params = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, String(value));
+  });
+
+  const queryString = searchParams.toString();
+  return queryString ? `?${queryString}` : "";
+};
+
+const summarizeReservationLines = (lines) => {
+  if (!lines.length) {
+    return {
+      itemSummary: "Produit indisponible",
+      category: "Catalogue",
+      totalQuantity: 0,
+      totalDeposit: 0,
+      primaryItemName: "Produit indisponible",
+    };
+  }
+
+  const totalQuantity = lines.reduce((sum, line) => sum + normalizeNumber(line.quantity), 0);
+  const totalDeposit = lines.reduce(
+    (sum, line) => sum + normalizeNumber(line.item_deposit) * normalizeNumber(line.quantity),
+    0
+  );
+  const uniqueCategories = [...new Set(lines.map((line) => line.item_category).filter(Boolean))];
+  const primaryLine = lines[0];
+  const primaryQuantitySuffix = normalizeNumber(primaryLine.quantity) > 1 ? ` x${primaryLine.quantity}` : "";
+  const itemSummary =
+    lines.length === 1
+      ? `${primaryLine.item_name}${primaryQuantitySuffix}`
+      : `${primaryLine.item_name}${primaryQuantitySuffix} +${lines.length - 1} produit(s)`;
+
+  return {
+    itemSummary,
+    category: uniqueCategories.length === 1 ? uniqueCategories[0] : "Multi-categories",
+    totalQuantity,
+    totalDeposit,
+    primaryItemName: primaryLine.item_name,
+  };
+};
 
 const isProfessionalClient = (client) => {
   const emailDomain = String(client.email || "").split("@")[1] || "";
@@ -62,44 +133,13 @@ const isProfessionalClient = (client) => {
   return emailDomain ? !freeMailDomains.includes(emailDomain) : false;
 };
 
-const buildDeliveryTours = (reservations, clients) =>
-  deliveryTemplates.map((template, index) => {
-    const tourDate = addDays(new Date(), template.dayOffset);
-    const relatedReservations = reservations
-      .filter((reservation) =>
-        reservation.status !== "cancelled" && differenceInCalendarDays(new Date(), reservation.start_date) <= 14
-      )
-      .slice(index, index + 2);
-
-    const fallbackClient = clients[index % Math.max(clients.length, 1)];
-    const address = fallbackClient?.address || `${12 + index} avenue de la Logistique, France`;
-
-    return {
-      id: template.id,
-      name: template.name,
-      driver: template.driver,
-      area: template.area,
-      status: template.status,
-      date: tourDate.toISOString(),
-      address,
-      reservations: relatedReservations,
-      stops: template.stops.map((stop, stopIndex) => ({
-        ...stop,
-        id: `${template.id}-${stopIndex}`,
-        address:
-          stop.kind === "depot"
-            ? "Depot LOKIFY"
-            : relatedReservations[stopIndex - 1]?.client_name || fallbackClient?.full_name || "Client a confirmer",
-      })),
-    };
-  });
-
 const buildStatistics = ({
   reservations,
   products,
   clients,
   categories,
   deliveryTours,
+  reservationStatusMetaMap,
   totalRevenue,
 }) => {
   const revenueByDayMap = new Map();
@@ -112,12 +152,15 @@ const buildStatistics = ({
       month: "short",
     });
     const dayTotal = revenueByDayMap.get(dayKey) || 0;
-    const productTotal = productUsageMap.get(reservation.item_name) || 0;
     const statusTotal = statusMap.get(reservation.status) || 0;
 
     revenueByDayMap.set(dayKey, dayTotal + reservation.total_amount);
-    productUsageMap.set(reservation.item_name, productTotal + 1);
     statusMap.set(reservation.status, statusTotal + 1);
+
+    reservation.lines.forEach((line) => {
+      const productTotal = productUsageMap.get(line.item_name) || 0;
+      productUsageMap.set(line.item_name, productTotal + normalizeNumber(line.quantity || 1));
+    });
   });
 
   const revenueByDay = Array.from(revenueByDayMap.entries()).map(([label, value]) => ({
@@ -196,7 +239,7 @@ const buildStatistics = ({
     categoryRows,
     reservationStatusRows: Array.from(statusMap.entries()).map(([status, volume]) => ({
       id: status,
-      label: reservationStatusMeta[status]?.label || status,
+      label: reservationStatusMetaMap[status]?.label || status,
       volume,
     })),
     deliveryRows: deliveryTours.map((tour) => ({
@@ -223,21 +266,64 @@ export default function useLokifyWorkspace() {
     }));
 
     try {
-      const [clientsResponse, itemsResponse, reservationsResponse, overviewResponse] =
-        await Promise.all([
-          apiRequest("/clients"),
-          apiRequest("/items"),
-          apiRequest("/reservations"),
-          apiRequest("/dashboard/overview"),
-        ]);
+      const [
+        clientsResponse,
+        itemsResponse,
+        reservationsResponse,
+        overviewResponse,
+        reportingOverviewResponse,
+        catalogCategoriesResponse,
+        catalogPacksResponse,
+        itemProfilesResponse,
+        taxRatesResponse,
+        customStatusesResponse,
+        deliveriesResponse,
+        operationsResponse,
+      ] = await Promise.all([
+        apiRequest("/clients"),
+        apiRequest("/items"),
+        apiRequest("/reservations"),
+        apiRequest("/dashboard/overview"),
+        apiRequest("/reporting/overview").catch(() => ({
+          documents: [],
+          invoices: [],
+          cash: {
+            entries: [],
+            summary: {
+              revenue_amount: 0,
+              deposit_amount: 0,
+              pending_revenue_count: 0,
+              blocked_deposits_count: 0,
+              deposits_to_release_count: 0,
+              tracked_amount: 0,
+            },
+          },
+        })),
+        apiRequest("/catalog/categories").catch(() => ({ categories: [] })),
+        apiRequest("/catalog/packs").catch(() => ({ packs: [] })),
+        apiRequest("/catalog/item-profiles").catch(() => ({ itemProfiles: [] })),
+        apiRequest("/catalog/tax-rates").catch(() => ({ taxRates: [] })),
+        apiRequest("/reservations/statuses").catch(() => ({ statuses: defaultReservationStatuses })),
+        apiRequest("/deliveries").catch(() => ({ tours: [] })),
+        apiRequest("/operations").catch(() => ({ productUnits: [], stockMovements: [] })),
+      ]);
 
       setState((current) => ({
         ...current,
         loading: false,
         error: "",
-        clients: clientsResponse.clients || [],
-        items: itemsResponse.items || [],
-        reservations: reservationsResponse.reservations || [],
+        clients: ensureArray(clientsResponse.clients),
+        catalogCategories: ensureArray(catalogCategoriesResponse.categories),
+        catalogPacks: ensureArray(catalogPacksResponse.packs),
+        customStatuses: ensureArray(customStatusesResponse.statuses, defaultReservationStatuses),
+        deliveryTours: ensureArray(deliveriesResponse.tours),
+        items: ensureArray(itemsResponse.items),
+        itemProfiles: ensureArray(itemProfilesResponse.itemProfiles),
+        productUnits: ensureArray(operationsResponse.productUnits),
+        reportingOverview: reportingOverviewResponse || initialState.reportingOverview,
+        reservations: ensureArray(reservationsResponse.reservations),
+        stockMovements: ensureArray(operationsResponse.stockMovements),
+        taxRates: ensureArray(taxRatesResponse.taxRates),
         overview: overviewResponse || initialOverview,
       }));
     } catch (error) {
@@ -260,9 +346,18 @@ export default function useLokifyWorkspace() {
         loading: false,
         error: "",
         overview: initialOverview,
+        reportingOverview: initialState.reportingOverview,
         clients: [],
+        catalogCategories: [],
+        catalogPacks: [],
+        customStatuses: [],
+        deliveryTours: [],
         items: [],
+        itemProfiles: [],
+        productUnits: [],
         reservations: [],
+        stockMovements: [],
+        taxRates: [],
       }));
       return;
     }
@@ -300,71 +395,230 @@ export default function useLokifyWorkspace() {
     };
   });
 
+  const itemProfilesByItemId = state.itemProfiles.reduce((accumulator, profile) => {
+    accumulator[profile.item_id] = profile;
+    return accumulator;
+  }, {});
+  const reservationStatuses =
+    ensureArray(state.customStatuses).length > 0 ? ensureArray(state.customStatuses) : defaultReservationStatuses;
+  const reservationStatusMetaMap = buildReservationStatusMeta(reservationStatuses);
+  const productUnitRecords = state.productUnits.map((unit) => ({
+    ...unit,
+    active_reservation: unit.active_reservation || null,
+  }));
+  const productUnitsByItemId = productUnitRecords.reduce((accumulator, unit) => {
+    const bucket = accumulator[unit.item_id] || [];
+    bucket.push(unit);
+    accumulator[unit.item_id] = bucket;
+    return accumulator;
+  }, {});
+
+  const itemsById = state.items.reduce((accumulator, item) => {
+    accumulator[item.id] = item;
+    return accumulator;
+  }, {});
+
   const reservationRecords = state.reservations
     .map((reservation) => {
-      const item = state.items.find((entry) => entry.id === reservation.item_id);
       const client = clientRecords.find((entry) => entry.id === reservation.client_id);
       const startDate = new Date(reservation.start_date);
       const endDate = new Date(reservation.end_date);
       const durationDays = Math.max(1, differenceInCalendarDays(startDate, endDate));
+      const lines =
+        Array.isArray(reservation.lines) && reservation.lines.length
+          ? reservation.lines
+          : reservation.item_id
+            ? [
+                {
+                  id: `${reservation.id}-legacy-line`,
+                  item_id: reservation.item_id,
+                  quantity: 1,
+                  unit_price: reservation.price,
+                  line_total: reservation.total_amount,
+                },
+              ]
+            : [];
+      const normalizedLines = lines.map((line, index) => {
+        const item = itemsById[line.item_id];
+        const itemProfile = item ? itemProfilesByItemId[item.id] : null;
+        const assignedUnits = Array.isArray(line.assigned_units)
+          ? line.assigned_units.map((assignment) => ({
+              ...assignment,
+              active: assignment.assignment_status === "departed",
+            }))
+          : [];
+
+        return {
+          ...line,
+          id: line.id || `${reservation.id}-line-${index}`,
+          item_id: line.item_id,
+          item_name: line.item_name || item?.name || "Produit indisponible",
+          item_category: line.item_category || itemProfile?.category_name || item?.category || "Catalogue",
+          item_deposit: normalizeNumber(line.item_deposit ?? item?.deposit),
+          quantity: normalizeNumber(line.quantity || 1),
+          unit_price: normalizeNumber(line.unit_price ?? item?.price),
+          line_total: normalizeNumber(line.line_total),
+          assigned_units: assignedUnits,
+        };
+      });
+      const summary = summarizeReservationLines(normalizedLines);
 
       return {
         ...reservation,
+        reference: reservation.reference || `RSV-${reservation.id.slice(0, 8).toUpperCase()}`,
+        source: reservation.source || "manual",
+        fulfillment_mode: reservation.fulfillment_mode || "pickup",
         client_name: reservation.client_name || client?.full_name || "Client indisponible",
         client_email: client?.email || "",
-        item_name: reservation.item_name || item?.name || "Produit indisponible",
-        category: item?.category || "Catalogue",
+        item_name: summary.itemSummary,
+        item_summary: summary.itemSummary,
+        primary_item_name: summary.primaryItemName,
+        category: summary.category,
         total_amount: normalizeNumber(reservation.total_amount),
-        deposit: normalizeNumber(item?.deposit),
-        price: normalizeNumber(item?.price),
+        deposit_tracking: {
+          handling_mode: reservation.deposit_tracking?.handling_mode || "manual",
+          calculated_amount: normalizeNumber(
+            reservation.deposit_tracking?.calculated_amount ?? reservation.total_deposit ?? summary.totalDeposit
+          ),
+          manual_status:
+            reservation.deposit_tracking?.manual_status ||
+            (normalizeNumber(reservation.total_deposit ?? summary.totalDeposit) > 0 ? "pending" : "not_required"),
+          manual_method: reservation.deposit_tracking?.manual_method || "",
+          manual_reference: reservation.deposit_tracking?.manual_reference || "",
+          notes: reservation.deposit_tracking?.notes || "",
+          collected_at: reservation.deposit_tracking?.collected_at || null,
+          released_at: reservation.deposit_tracking?.released_at || null,
+        },
+        deposit: normalizeNumber(
+          reservation.deposit_tracking?.calculated_amount ?? reservation.total_deposit ?? summary.totalDeposit
+        ),
+        price: normalizeNumber(normalizedLines[0]?.unit_price),
         durationDays,
-        isActive: ["draft", "confirmed"].includes(reservation.status),
+        line_count: normalizedLines.length,
+        total_quantity: summary.totalQuantity,
+        lines: normalizedLines,
+        departure_tracking: reservation.departure_tracking
+          ? {
+              status: reservation.departure_tracking.status || "pending",
+              processed_at: reservation.departure_tracking.processed_at || null,
+              notes: reservation.departure_tracking.notes || "",
+            }
+          : null,
+        return_tracking: reservation.return_tracking
+          ? {
+              status: reservation.return_tracking.status || "pending",
+              processed_at: reservation.return_tracking.processed_at || null,
+              notes: reservation.return_tracking.notes || "",
+            }
+          : null,
+        isActive: ["draft", "confirmed", "pending"].includes(reservation.status),
       };
     })
     .sort((left, right) => new Date(left.start_date) - new Date(right.start_date));
 
   const productRecords = state.items.map((item) => {
-    const reservedUnits = reservationRecords.filter(
-      (reservation) =>
-        reservation.item_id === item.id &&
-        ["draft", "confirmed"].includes(reservation.status) &&
-        new Date(reservation.end_date) >= startOfDay(new Date())
-    ).length;
+    const profile = itemProfilesByItemId[item.id] || {};
+    const trackedUnits = productUnitsByItemId[item.id] || [];
+    const reservedUnits = reservationRecords.reduce((sum, reservation) => {
+      if (!["draft", "confirmed", "pending"].includes(reservation.status)) {
+        return sum;
+      }
+
+      if (new Date(reservation.end_date) < startOfDay(new Date())) {
+        return sum;
+      }
+
+      return (
+        sum +
+        reservation.lines
+          .filter((line) => line.item_id === item.id)
+          .reduce((lineSum, line) => lineSum + normalizeNumber(line.quantity), 0)
+      );
+    }, 0);
     const normalizedStock = normalizeNumber(item.stock);
     const normalizedStatus = item.status || "available";
+    const categoryName = profile.category_name || item.category || "";
+    const categorySlug = profile.category_slug || slugify(categoryName);
+    const isActive = profile.is_active ?? normalizedStatus !== "inactive";
     const unavailableUnits =
       normalizedStatus === "maintenance" || normalizedStatus === "unavailable" ? normalizedStock : 0;
-    const availableUnits = Math.max(normalizedStock - reservedUnits - unavailableUnits, 0);
+    const trackedAvailableUnits = trackedUnits.filter((unit) => unit.status === "available").length;
+    const checkedOutUnits = trackedUnits.filter((unit) => unit.status === "out").length;
+    const trackedUnavailableUnits = trackedUnits.filter((unit) =>
+      ["maintenance", "unavailable"].includes(unit.status)
+    ).length;
+    const unitCoverageGap = Boolean(profile.serial_tracking)
+      ? Math.max(normalizedStock - trackedUnits.length, 0)
+      : 0;
+    const availableUnits = profile.serial_tracking
+      ? trackedAvailableUnits
+      : Math.max(normalizedStock - reservedUnits - unavailableUnits, 0);
+    const operationalUnavailableUnits = profile.serial_tracking
+      ? trackedUnavailableUnits
+      : unavailableUnits;
+    const effectiveAvailableUnits = isActive ? availableUnits : 0;
+    const effectiveUnavailableUnits = isActive ? operationalUnavailableUnits : normalizedStock;
 
     return {
       ...item,
       stock: normalizedStock,
       price: normalizeNumber(item.price),
       deposit: normalizeNumber(item.deposit),
+      profile,
       reservedUnits,
-      unavailableUnits,
-      availableUnits,
-      categorySlug: slugify(item.category),
-      statusMeta: productStatusMeta[normalizedStatus] || productStatusMeta.available,
-      isActive: normalizedStatus !== "inactive",
+      unavailableUnits: effectiveUnavailableUnits,
+      availableUnits: effectiveAvailableUnits,
+      trackedUnits,
+      trackedUnitsCount: trackedUnits.length,
+      trackedAvailableUnits,
+      checkedOutUnits,
+      trackedUnavailableUnits,
+      unitCoverageGap,
+      category: categoryName,
+      categorySlug,
+      statusMeta: isActive
+        ? productStatusMeta[normalizedStatus] || productStatusMeta.available
+        : productStatusMeta.inactive,
+      isActive,
+      public_name: profile.public_name || item.name,
+      public_description: profile.public_description || "",
+      long_description: profile.long_description || "",
+      thumbnail: profile.photos?.[0] || "",
+      catalog_mode: profile.catalog_mode || "location",
+      online_visible: Boolean(profile.online_visible),
+      reservable: profile.reservable ?? true,
+      vat: profile.vat ?? null,
+      tax_rate_id: profile.tax_rate_id || "",
+      price_custom: profile.price_custom || { label: "", amount: null },
+      options: Array.isArray(profile.options) ? profile.options : [],
+      variants: Array.isArray(profile.variants) ? profile.variants : [],
+      sku: profile.sku || `REF-${item.id.slice(0, 6).toUpperCase()}`,
     };
   });
 
-  const liveCategoryRecords = productRecords.map((product) => ({
-    id: product.categorySlug,
-    name: product.category,
-    slug: product.categorySlug,
-    type: "Catalogue",
-    description: `Categorie issue du parc LOKIFY pour ${product.category}.`,
-    filters: ["format", "stock"],
-    inspectionEnabled: true,
-    durations: [],
-    ranges: [],
-    status: "active",
+  const persistedCategoryRecords = state.catalogCategories.map((category) => ({
+    ...category,
+    slug: category.slug || slugify(category.name),
   }));
 
+  const liveCategoryRecords = productRecords
+    .filter((product) => product.categorySlug && product.category)
+    .map((product) => ({
+      id: product.categorySlug,
+      name: product.category,
+      slug: product.categorySlug,
+      type: "Catalogue",
+      description: "",
+      filters: [],
+      inspectionEnabled: false,
+      durations: [],
+      ranges: [],
+      status: "active",
+      source: "product",
+    }));
+
   const categoryMap = new Map();
-  [...categoryBlueprints, ...liveCategoryRecords].forEach((category) => {
+  [...persistedCategoryRecords, ...liveCategoryRecords].forEach((category) => {
     const slug = category.slug || category.id || slugify(category.name);
 
     if (!categoryMap.has(slug)) {
@@ -374,22 +628,108 @@ export default function useLokifyWorkspace() {
       });
     }
   });
-  const categories = Array.from(categoryMap.values());
+  const categories = Array.from(categoryMap.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, "fr")
+  );
 
-  const packs = packBlueprints.map((pack) => {
-    const linkedProducts = productRecords.filter(
-      (product) =>
-        product.categorySlug === pack.categoryId || pack.productHints.includes(product.name)
+  const packs = state.catalogPacks.map((pack) => {
+    const linkedProducts = Array.isArray(pack.products)
+      ? pack.products.map((packProduct) => {
+          const product = productRecords.find((entry) => entry.id === packProduct.item_id);
+
+          return product
+            ? { ...product, sort_order: packProduct.sort_order }
+            : {
+                id: packProduct.item_id,
+                name: packProduct.name,
+                public_name: packProduct.public_name,
+                category: packProduct.category_name,
+                categorySlug: slugify(packProduct.category_name),
+                price: normalizeNumber(packProduct.price),
+                stock: normalizeNumber(packProduct.stock),
+                status: packProduct.status,
+                statusMeta: productStatusMeta[packProduct.status] || productStatusMeta.available,
+                isActive: packProduct.status !== "inactive",
+                thumbnail: packProduct.thumbnail || "",
+                sort_order: packProduct.sort_order,
+              };
+        })
+      : [];
+    const totalPrice = linkedProducts.reduce(
+      (sum, product) => sum + normalizeNumber(product.price),
+      0
     );
+    const discountedPrice =
+      pack.discount_type === "amount"
+        ? Math.max(totalPrice - normalizeNumber(pack.discount_value), 0)
+        : pack.discount_type === "percentage"
+          ? Math.max(totalPrice - totalPrice * (normalizeNumber(pack.discount_value) / 100), 0)
+          : totalPrice;
 
     return {
       ...pack,
       linkedProducts,
+      totalPrice,
+      discountedPrice,
       activeProducts: linkedProducts.filter((product) => product.isActive).length,
     };
   });
+  const taxRates = state.taxRates.map((taxRate) => ({
+    ...taxRate,
+    rate: normalizeNumber(taxRate.rate),
+  }));
+  const defaultTaxRate = taxRates.find((taxRate) => taxRate.is_default && taxRate.is_active) || null;
 
-  const deliveries = buildDeliveryTours(reservationRecords, clientRecords);
+  const deliveries = state.deliveryTours
+    .map((tour) => ({
+      ...tour,
+      date: tour.date || tour.scheduled_for,
+      reservations: Array.isArray(tour.reservations) ? tour.reservations : [],
+      stops: Array.isArray(tour.stops)
+        ? [...tour.stops].sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0))
+        : [],
+    }))
+    .sort((left, right) => new Date(left.date) - new Date(right.date));
+  const departuresToProcess = reservationRecords
+    .filter((reservation) => {
+      if (reservation.status !== "confirmed") {
+        return false;
+      }
+
+      if (reservation.departure_tracking?.status === "completed") {
+        return false;
+      }
+
+      return new Date(reservation.start_date) <= addDays(new Date(), 3);
+    })
+    .sort((left, right) => new Date(left.start_date) - new Date(right.start_date));
+  const returnsToProcess = reservationRecords
+    .filter((reservation) => {
+      if (reservation.status === "cancelled") {
+        return false;
+      }
+
+      if (reservation.return_tracking?.status === "completed") {
+        return false;
+      }
+
+      if (reservation.departure_tracking?.status !== "completed") {
+        return false;
+      }
+
+      return new Date(reservation.end_date) <= addDays(new Date(), 3);
+    })
+    .sort((left, right) => new Date(left.end_date) - new Date(right.end_date));
+  const stockJournal = state.stockMovements.map((movement) => ({
+    ...movement,
+    quantity: normalizeNumber(movement.quantity || 1),
+    occurred_at: movement.occurred_at || movement.created_at,
+    item_name: movement.item_name || itemsById[movement.item_id]?.name || "Produit indisponible",
+    reservation_reference:
+      movement.reservation_reference ||
+      reservationRecords.find((reservation) => reservation.id === movement.reservation_id)?.reference ||
+      "",
+  }));
 
   const totalRevenue = reservationRecords
     .filter((reservation) => ["confirmed", "completed"].includes(reservation.status))
@@ -405,16 +745,22 @@ export default function useLokifyWorkspace() {
     clients: clientRecords,
     categories,
     deliveryTours: deliveries,
+    reservationStatusMetaMap,
     totalRevenue,
   });
 
   const documentRows = reservationRecords.map((reservation) => ({
     id: reservation.id,
     client: reservation.client_name,
-    reference: `RSV-${reservation.id.slice(0, 6).toUpperCase()}`,
+    reference: reservation.reference,
     quoteStatus: reservation.status === "draft" ? "A valider" : "Pret",
     contractStatus: reservation.status === "confirmed" ? "A signer" : "En preparation",
-    inventoryStatus: reservation.status === "completed" ? "Archive" : "A planifier",
+    inventoryStatus:
+      reservation.return_tracking?.status === "completed"
+        ? "Archive"
+        : reservation.departure_tracking?.status === "completed"
+          ? "En circulation"
+          : "A planifier",
   }));
 
   const cashEntries = reservationRecords.flatMap((reservation) => [
@@ -432,13 +778,37 @@ export default function useLokifyWorkspace() {
       label: reservation.client_name,
       date: reservation.start_date,
       amount: reservation.deposit,
-      status: reservation.status === "completed" ? "A restituer" : "Bloque",
+      status:
+        reservationDepositStatusMeta[reservation.deposit_tracking.manual_status]?.label ||
+        reservation.deposit_tracking.manual_status,
+      tone:
+        reservationDepositStatusMeta[reservation.deposit_tracking.manual_status]?.tone || "neutral",
     },
   ]);
+  const reportingDocumentRows = Array.isArray(state.reportingOverview.documents)
+    ? state.reportingOverview.documents
+    : [];
+  const reportingInvoiceRows = Array.isArray(state.reportingOverview.invoices)
+    ? state.reportingOverview.invoices
+    : [];
+  const reportingCashEntries = Array.isArray(state.reportingOverview.cash?.entries)
+    ? state.reportingOverview.cash.entries
+    : [];
+  const reportingCashSummary = state.reportingOverview.cash?.summary || {
+    revenue_amount: 0,
+    deposit_amount: 0,
+    pending_revenue_count: 0,
+    blocked_deposits_count: 0,
+    deposits_to_release_count: 0,
+    tracked_amount: 0,
+  };
 
   return {
     ...state,
     reload: loadWorkspace,
+    listClientsByScope: (scope = "active") =>
+      apiRequest(`/clients${buildQueryString({ scope })}`),
+    getClientDetail: (clientId) => apiRequest(`/clients/${clientId}`),
     saveClient: (payload, clientId = null) =>
       runMutation(() =>
         apiRequest(clientId ? `/clients/${clientId}` : "/clients", {
@@ -446,16 +816,41 @@ export default function useLokifyWorkspace() {
           body: payload,
         })
       ),
-    deleteClient: (clientId) =>
+    archiveClient: (clientId, payload = {}) =>
       runMutation(() =>
-        apiRequest(`/clients/${clientId}`, {
-          method: "DELETE",
+        apiRequest(`/clients/${clientId}/archive`, {
+          method: "POST",
+          body: payload,
         })
       ),
+    restoreClient: (clientId, payload = {}) =>
+      runMutation(() =>
+        apiRequest(`/clients/${clientId}/restore`, {
+          method: "POST",
+          body: payload,
+        })
+      ),
+    deleteClient: (clientId) =>
+      runMutation(() =>
+        apiRequest(`/clients/${clientId}/archive`, {
+          method: "POST",
+        })
+      ),
+    listReservations: (filters = {}) =>
+      apiRequest(`/reservations${buildQueryString(filters)}`),
     saveReservation: (payload, reservationId = null) =>
       runMutation(() =>
         apiRequest(reservationId ? `/reservations/${reservationId}` : "/reservations", {
           method: reservationId ? "PUT" : "POST",
+          body: payload,
+        })
+      ),
+    getReservationDocument: (documentId) =>
+      apiRequest(`/reporting/documents/${documentId}`),
+    saveReservationDocument: (documentId, payload) =>
+      runMutation(() =>
+        apiRequest(`/reporting/documents/${documentId}`, {
+          method: "PUT",
           body: payload,
         })
       ),
@@ -465,11 +860,150 @@ export default function useLokifyWorkspace() {
           method: "DELETE",
         })
       ),
+    listClientDocuments: (clientId) =>
+      apiRequest(`/clients/${clientId}/documents`),
+    getClientDocument: (clientId, documentId) =>
+      apiRequest(`/clients/${clientId}/documents/${documentId}`),
+    uploadClientDocument: (clientId, payload) =>
+      apiRequest(`/clients/${clientId}/documents`, {
+        method: "POST",
+        body: payload,
+      }),
+    deleteClientDocument: (clientId, documentId) =>
+      apiRequest(`/clients/${clientId}/documents/${documentId}`, {
+        method: "DELETE",
+      }),
     saveItem: (payload, itemId = null) =>
       runMutation(() =>
         apiRequest(itemId ? `/items/${itemId}` : "/items", {
           method: itemId ? "PUT" : "POST",
           body: payload,
+        })
+      ),
+    saveItemProfile: (itemId, payload) =>
+      runMutation(() =>
+        apiRequest(`/catalog/item-profiles/${itemId}`, {
+          method: "PUT",
+          body: payload,
+        })
+      ),
+    saveCatalogCategory: (payload) =>
+      runMutation(() =>
+        apiRequest("/catalog/categories", {
+          method: "POST",
+          body: payload,
+        })
+      ),
+    deleteCatalogCategory: (categorySlug) =>
+      runMutation(() =>
+        apiRequest(`/catalog/categories/${encodeURIComponent(categorySlug)}`, {
+          method: "DELETE",
+        })
+      ),
+    saveCatalogTaxRate: (payload, taxRateId = null) =>
+      runMutation(() =>
+        apiRequest(taxRateId ? `/catalog/tax-rates/${taxRateId}` : "/catalog/tax-rates", {
+          method: taxRateId ? "PUT" : "POST",
+          body: payload,
+        })
+      ),
+    deleteCatalogTaxRate: (taxRateId) =>
+      runMutation(() =>
+        apiRequest(`/catalog/tax-rates/${taxRateId}`, {
+          method: "DELETE",
+        })
+      ),
+    saveCatalogPack: (payload, packId = null) =>
+      runMutation(() =>
+        apiRequest(packId ? `/catalog/packs/${packId}` : "/catalog/packs", {
+          method: packId ? "PUT" : "POST",
+          body: payload,
+        })
+      ),
+    deleteCatalogPack: (packId) =>
+      runMutation(() =>
+        apiRequest(`/catalog/packs/${packId}`, {
+          method: "DELETE",
+        })
+      ),
+    duplicateCatalogPack: (packId) =>
+      runMutation(() =>
+        apiRequest(`/catalog/packs/${packId}/duplicate`, {
+          method: "POST",
+        })
+      ),
+    duplicateItem: (itemId) =>
+      runMutation(() =>
+        apiRequest(`/catalog/products/${itemId}/duplicate`, {
+          method: "POST",
+        })
+      ),
+    saveReservationStatuses: (statuses) =>
+      runMutation(() =>
+        apiRequest("/reservations/statuses", {
+          method: "PUT",
+          body: { statuses },
+        })
+      ),
+    createProductUnit: (itemId, payload) =>
+      runMutation(() =>
+        apiRequest(`/operations/items/${itemId}/units`, {
+          method: "POST",
+          body: payload,
+        })
+      ),
+    generateItemUnits: (itemId) =>
+      runMutation(() =>
+        apiRequest(`/operations/items/${itemId}/units/generate-missing`, {
+          method: "POST",
+        })
+      ),
+    updateProductUnit: (unitId, payload) =>
+      runMutation(() =>
+        apiRequest(`/operations/units/${unitId}`, {
+          method: "PUT",
+          body: payload,
+        })
+      ),
+    markReservationDeparture: (reservationId, payload = {}) =>
+      runMutation(() =>
+        apiRequest(`/operations/reservations/${reservationId}/depart`, {
+          method: "POST",
+          body: payload,
+        })
+      ),
+    markReservationReturn: (reservationId, payload = {}) =>
+      runMutation(() =>
+        apiRequest(`/operations/reservations/${reservationId}/return`, {
+          method: "POST",
+          body: payload,
+        })
+      ),
+    createDeliveryTour: (payload) =>
+      runMutation(() =>
+        apiRequest("/deliveries", {
+          method: "POST",
+          body: payload,
+        })
+      ),
+    updateDeliveryTour: (tourId, payload) =>
+      runMutation(() =>
+        apiRequest(`/deliveries/${tourId}`, {
+          method: "PUT",
+          body: payload,
+        })
+      ),
+    deleteDeliveryTour: (tourId) =>
+      runMutation(() =>
+        apiRequest(`/deliveries/${tourId}`, {
+          method: "DELETE",
+        })
+      ),
+    moveDeliveryStop: (tourId, stopId, direction) =>
+      runMutation(() =>
+        apiRequest(`/deliveries/${tourId}/stops/${stopId}/move`, {
+          method: "POST",
+          body: { direction },
         })
       ),
     deleteItem: (itemId) =>
@@ -479,13 +1013,29 @@ export default function useLokifyWorkspace() {
         })
       ),
     clients: clientRecords,
+    catalogCategories: persistedCategoryRecords,
+    catalogPacks: state.catalogPacks,
+    customStatuses: reservationStatuses,
+    itemProfiles: state.itemProfiles,
+    itemProfilesByItemId,
+    productUnits: productUnitRecords,
+    productUnitsByItemId,
     products: productRecords,
     reservations: reservationRecords,
+    reservationStatuses,
+    reservationStatusMeta: reservationStatusMetaMap,
     categories,
     packs,
+    taxRates,
+    defaultTaxRate,
     deliveries,
-    documents: documentRows,
-    cashEntries,
+    departuresToProcess,
+    returnsToProcess,
+    stockJournal,
+    documents: reportingDocumentRows.length ? reportingDocumentRows : documentRows,
+    invoiceDocuments: reportingInvoiceRows,
+    cashEntries: reportingCashEntries.length ? reportingCashEntries : cashEntries,
+    cashSummary: reportingCashSummary,
     toolboxModules: toolboxModules.map((module) => ({
       ...module,
       enabled: module.enabledByDefault,

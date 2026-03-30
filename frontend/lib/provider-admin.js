@@ -1,6 +1,7 @@
 import { formatDate, formatDateTime } from "./date";
 
 const providerStatusMeta = {
+  archived: { label: "Archive", tone: "warning" },
   invited: { label: "Invite", tone: "info" },
   active: { label: "Actif", tone: "success" },
   blocked: { label: "Bloque", tone: "danger" },
