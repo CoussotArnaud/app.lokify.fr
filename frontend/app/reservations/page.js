@@ -17,6 +17,8 @@ import { reservationDepositStatusMeta } from "../../lib/lokify-data";
 import { addDays, formatCurrency, formatDateTime, toDateTimeLocalValue } from "../../lib/date";
 
 const pageSize = 7;
+const EMPTY_ARRAY = [];
+const EMPTY_OBJECT = {};
 
 const reservationGroups = [
   {
@@ -34,6 +36,9 @@ const emptyQuickClientForm = {
   phone: "",
   email: "",
 };
+
+const ensureArray = (value) => (Array.isArray(value) ? value : EMPTY_ARRAY);
+const ensureObject = (value) => (value && typeof value === "object" ? value : EMPTY_OBJECT);
 
 const normalizeWhitespace = (value) =>
   String(value ?? "")
@@ -70,7 +75,7 @@ const findExistingClientMatch = (clients, candidate) => {
   const candidateFirstName = normalizeComparableText(candidate.first_name);
   const candidateLastName = normalizeComparableText(candidate.last_name);
 
-  for (const client of clients) {
+  for (const client of ensureArray(clients)) {
     const existingEmail = normalizeEmailValue(client.email);
     const existingPhone = normalizePhoneValue(client.phone || client.phone_number || "");
     const sameName =
@@ -106,12 +111,12 @@ const getExistingClientMessage = (matchType) => {
 };
 
 const buildReservationLine = (products) => ({
-  item_id: products[0]?.id || "",
+  item_id: ensureArray(products)[0]?.id || "",
   quantity: 1,
 });
 
 const getDefaultForm = (clients, products) => ({
-  client_id: clients[0]?.id || "",
+  client_id: ensureArray(clients)[0]?.id || "",
   start_date: toDateTimeLocalValue(new Date()),
   end_date: toDateTimeLocalValue(addDays(new Date(), 1)),
   status: "draft",
@@ -246,7 +251,7 @@ const buildDocumentPreviewMarkup = (document) => `
 `;
 
 export default function ReservationsPage() {
-  const workspace = useLokifyWorkspace();
+  const rawWorkspace = useLokifyWorkspace();
   const [section, setSection] = useState("reservations");
   const [periodFilter, setPeriodFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -281,28 +286,57 @@ export default function ReservationsPage() {
   const [documentError, setDocumentError] = useState("");
   const [documentFeedback, setDocumentFeedback] = useState("");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
-  const reservationStatusMeta = workspace.reservationStatusMeta;
-  const reservationStatusOptions = workspace.reservationStatuses;
+  const reservationStatusMeta = ensureObject(rawWorkspace.reservationStatusMeta);
+  const reservationStatusOptions = ensureArray(rawWorkspace.reservationStatuses);
+  const clients = ensureArray(rawWorkspace.clients);
+  const products = ensureArray(rawWorkspace.products);
+  const reservations = ensureArray(rawWorkspace.reservations);
+  const documents = ensureArray(rawWorkspace.documents);
+  const cashEntries = ensureArray(rawWorkspace.cashEntries);
+  const formLines = ensureArray(form.lines);
+  const overviewStats = ensureObject(rawWorkspace.overview?.stats);
+  const cashSummary = {
+    pending_revenue_count: 0,
+    blocked_deposits_count: 0,
+    deposits_to_release_count: 0,
+    tracked_amount: 0,
+    ...ensureObject(rawWorkspace.cashSummary),
+  };
+  const workspace = {
+    ...rawWorkspace,
+    clients,
+    products,
+    reservations,
+    documents,
+    cashEntries,
+    reservationStatuses: reservationStatusOptions,
+    reservationStatusMeta,
+    overview: {
+      ...ensureObject(rawWorkspace.overview),
+      stats: overviewStats,
+    },
+    cashSummary,
+  };
 
   useEffect(() => {
-    if (!workspace.clients.length && !workspace.products.length) {
+    if (!clients.length && !products.length) {
       return;
     }
 
     setForm((current) => {
-      const nextClientId = current.client_id || workspace.clients[0]?.id || "";
+      const nextClientId = current.client_id || clients[0]?.id || "";
       const nextLines =
-        current.lines?.length
-          ? current.lines.map((line, index) => ({
+        ensureArray(current.lines).length
+          ? ensureArray(current.lines).map((line, index) => ({
               ...line,
-              item_id: line.item_id || (index === 0 ? workspace.products[0]?.id || "" : ""),
+              item_id: line.item_id || (index === 0 ? products[0]?.id || "" : ""),
               quantity: Number(line.quantity || 1),
             }))
-          : [buildReservationLine(workspace.products)];
+          : [buildReservationLine(products)];
 
       const hasChanged =
         nextClientId !== current.client_id ||
-        JSON.stringify(nextLines) !== JSON.stringify(current.lines || []);
+        JSON.stringify(nextLines) !== JSON.stringify(ensureArray(current.lines));
 
       if (!hasChanged) {
         return current;
@@ -314,7 +348,7 @@ export default function ReservationsPage() {
         lines: nextLines,
       };
     });
-  }, [workspace.clients, workspace.products]);
+  }, [clients, products]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -345,7 +379,7 @@ export default function ReservationsPage() {
     setPage(1);
   }, [section, periodFilter, statusFilter, deferredSearch]);
 
-  const filteredReservations = workspace.reservations.filter((reservation) => {
+  const filteredReservations = reservations.filter((reservation) => {
     if (statusFilter !== "all" && reservation.status !== statusFilter) {
       return false;
     }
@@ -379,7 +413,7 @@ export default function ReservationsPage() {
   const resetForm = () => {
     setEditingId(null);
     setComposerIntent("reservation");
-    setForm(getDefaultForm(workspace.clients, workspace.products));
+    setForm(getDefaultForm(clients, products));
     resetQuickClientState();
     setIsSubmittingReservation(false);
     setIsComposerOpen(false);
@@ -388,7 +422,7 @@ export default function ReservationsPage() {
   const openReservationComposer = () => {
     setEditingId(null);
     setComposerIntent("reservation");
-    setForm(getDefaultForm(workspace.clients, workspace.products));
+    setForm(getDefaultForm(clients, products));
     setError("");
     setFeedback("");
     setQuickClientForm(emptyQuickClientForm);
@@ -396,7 +430,7 @@ export default function ReservationsPage() {
     setQuickClientError("");
     setIsCreatingClient(false);
     setIsSubmittingReservation(false);
-    setIsClientCreatorOpen(!workspace.clients.length);
+    setIsClientCreatorOpen(!clients.length);
     setIsComposerOpen(true);
   };
 
@@ -404,7 +438,7 @@ export default function ReservationsPage() {
     setEditingId(null);
     setComposerIntent("quote");
     setForm({
-      ...getDefaultForm(workspace.clients, workspace.products),
+      ...getDefaultForm(clients, products),
       source: "quote",
     });
     setSection("documents");
@@ -415,7 +449,7 @@ export default function ReservationsPage() {
     setQuickClientError("");
     setIsCreatingClient(false);
     setIsSubmittingReservation(false);
-    setIsClientCreatorOpen(!workspace.clients.length);
+    setIsClientCreatorOpen(!clients.length);
     setIsComposerOpen(true);
   };
 
@@ -440,7 +474,7 @@ export default function ReservationsPage() {
       return;
     }
 
-    const existingClientMatch = findExistingClientMatch(workspace.clients, nextClientPayload);
+    const existingClientMatch = findExistingClientMatch(clients, nextClientPayload);
 
     if (existingClientMatch) {
       setForm((current) => ({
@@ -498,7 +532,7 @@ export default function ReservationsPage() {
   const updateReservationLine = (index, field, value) => {
     setForm((current) => ({
       ...current,
-      lines: current.lines.map((line, lineIndex) =>
+      lines: ensureArray(current.lines).map((line, lineIndex) =>
         lineIndex === index
           ? {
               ...line,
@@ -512,17 +546,17 @@ export default function ReservationsPage() {
   const addReservationLine = () => {
     setForm((current) => ({
       ...current,
-      lines: [...current.lines, buildReservationLine(workspace.products)],
+      lines: [...ensureArray(current.lines), buildReservationLine(products)],
     }));
   };
 
   const removeReservationLine = (index) => {
     setForm((current) => {
-      const nextLines = current.lines.filter((_, lineIndex) => lineIndex !== index);
+      const nextLines = ensureArray(current.lines).filter((_, lineIndex) => lineIndex !== index);
 
       return {
         ...current,
-        lines: nextLines.length ? nextLines : [buildReservationLine(workspace.products)],
+        lines: nextLines.length ? nextLines : [buildReservationLine(products)],
       };
     });
   };
@@ -531,7 +565,7 @@ export default function ReservationsPage() {
     event.preventDefault();
     setError("");
     setFeedback("");
-    const nextLines = form.lines
+    const nextLines = formLines
       .map((line) => ({
         item_id: line.item_id,
         quantity: Math.max(1, Number(line.quantity || 1)),
@@ -641,7 +675,7 @@ export default function ReservationsPage() {
     }
 
     const statusLabel =
-      activeDocument.status_options?.find((option) => option.value === documentDraft.status)?.label ||
+      ensureArray(activeDocument.status_options).find((option) => option.value === documentDraft.status)?.label ||
       activeDocument.status_label ||
       documentDraft.status;
     const previewDocument = {
@@ -738,11 +772,11 @@ export default function ReservationsPage() {
         notes: reservation.deposit_tracking?.notes || "",
       },
       lines: reservation.lines?.length
-        ? reservation.lines.map((line) => ({
+        ? ensureArray(reservation.lines).map((line) => ({
             item_id: line.item_id,
             quantity: line.quantity,
           }))
-        : [buildReservationLine(workspace.products)],
+        : [buildReservationLine(products)],
     });
     resetQuickClientState();
     setQuickClientForm(emptyQuickClientForm);
@@ -752,11 +786,11 @@ export default function ReservationsPage() {
   };
 
   useEffect(() => {
-    if (!requestedEditId || !workspace.reservations.length) {
+    if (!requestedEditId || !reservations.length) {
       return;
     }
 
-    const reservationToEdit = workspace.reservations.find((reservation) => reservation.id === requestedEditId);
+    const reservationToEdit = reservations.find((reservation) => reservation.id === requestedEditId);
 
     if (!reservationToEdit) {
       return;
@@ -771,7 +805,7 @@ export default function ReservationsPage() {
       const nextSearch = params.toString();
       window.history.replaceState({}, "", nextSearch ? `/reservations?${nextSearch}` : "/reservations");
     }
-  }, [requestedEditId, workspace.reservations]);
+  }, [requestedEditId, reservations]);
 
   const exportReservations = () => {
     downloadCsv(
@@ -800,21 +834,21 @@ export default function ReservationsPage() {
         { label: "Etat des lieux", value: (row) => row.inventoryStatus },
         { label: "Facture", value: (row) => row.invoiceStatus },
       ],
-      workspace.documents
+      documents
     );
   };
 
   const reservationDurationInDays = getReservationDurationInDays(form.start_date, form.end_date);
-  const estimatedReservationAmount = form.lines.reduce((sum, line) => {
-    const product = workspace.products.find((entry) => entry.id === line.item_id);
+  const estimatedReservationAmount = formLines.reduce((sum, line) => {
+    const product = products.find((entry) => entry.id === line.item_id);
     return sum + (Number(product?.price || 0) * Number(line.quantity || 0) * reservationDurationInDays);
   }, 0);
-  const estimatedReservationDeposit = form.lines.reduce((sum, line) => {
-    const product = workspace.products.find((entry) => entry.id === line.item_id);
+  const estimatedReservationDeposit = formLines.reduce((sum, line) => {
+    const product = products.find((entry) => entry.id === line.item_id);
     return sum + (Number(product?.deposit || 0) * Number(line.quantity || 0));
   }, 0);
   const canSubmitReservation =
-    Boolean(form.client_id && form.lines.some((line) => line.item_id)) &&
+    Boolean(form.client_id && formLines.some((line) => line.item_id)) &&
     !isCreatingClient &&
     !isSubmittingReservation;
 
@@ -1033,7 +1067,7 @@ export default function ReservationsPage() {
                       label: "Actions",
                       render: (row) => (
                         <div className="inline-action-list">
-                          {(row.documents || []).map((document) => (
+                          {ensureArray(row.documents).map((document) => (
                             <button
                               key={document.id}
                               type="button"
@@ -1241,7 +1275,7 @@ export default function ReservationsPage() {
                 </div>
 
                 <div className="stack">
-                  {form.lines.map((line, index) => {
+                  {formLines.map((line, index) => {
                     const selectedProduct = workspace.products.find((product) => product.id === line.item_id);
 
                     return (
@@ -1276,7 +1310,7 @@ export default function ReservationsPage() {
                               type="button"
                               className="button ghost"
                               onClick={() => removeReservationLine(index)}
-                              disabled={form.lines.length === 1}
+                              disabled={formLines.length === 1}
                             >
                               Retirer
                             </button>
@@ -1465,7 +1499,7 @@ export default function ReservationsPage() {
 
               <div className="kpi-band">
                 <div className="kpi-tile">
-                  <strong>{form.lines.filter((line) => line.item_id).length}</strong>
+                  <strong>{formLines.filter((line) => line.item_id).length}</strong>
                   <span>ligne(s) produit</span>
                 </div>
                 <div className="kpi-tile">
@@ -1590,7 +1624,7 @@ export default function ReservationsPage() {
                       }))
                     }
                   >
-                    {(activeDocument.status_options || []).map((option) => (
+                    {ensureArray(activeDocument.status_options).map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
