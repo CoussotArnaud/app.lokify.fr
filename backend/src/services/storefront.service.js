@@ -1,13 +1,23 @@
 import crypto from "crypto";
 
+import env from "../config/env.js";
 import { query } from "../config/db.js";
 import HttpError from "../utils/http-error.js";
 import { listCatalogPacks, listItemProfiles } from "./catalog.service.js";
 import { createClient, restoreClient } from "./clients.service.js";
+import {
+  getCustomerPaymentSettings,
+  getCustomerPaymentSettingsSnapshot,
+} from "./customer-payments.service.js";
 import { listItems } from "./items.service.js";
+import { getResolvedSuperAdminStripeConfiguration } from "./platform-stripe-settings.service.js";
 import { notifyProviderAboutStorefrontReservation } from "./storefront-notification.service.js";
+import {
+  createConnectedAccountCheckoutSession,
+  retrieveConnectedAccountCheckoutSession,
+} from "./stripe-connect.service.js";
 import { getPlanning } from "./planning.service.js";
-import { createReservation } from "./reservations.service.js";
+import { createReservation, getReservationById } from "./reservations.service.js";
 
 const allowedFulfillmentModes = new Set(["pickup", "delivery", "onsite"]);
 const allowedStorefrontApprovalModes = new Set(["manual", "automatic"]);
@@ -41,6 +51,14 @@ const normalizePhone = (value) => {
 const toNumber = (value) => Number(value || 0);
 const toMoneyCents = (value) => Math.max(0, Math.round(toNumber(value) * 100));
 const fromMoneyCents = (value) => Number((Number(value || 0) / 100).toFixed(2));
+const parseJsonObject = (value) => {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+};
 
 const normalizeStorefrontSlug = (value) =>
   String(value ?? "")
@@ -51,6 +69,23 @@ const normalizeStorefrontSlug = (value) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, storefrontSlugMaxLength)
     .replace(/-+$/g, "");
+
+const buildStorefrontPaymentSummary = async (userId) => {
+  const settings = await getCustomerPaymentSettingsSnapshot(userId);
+  const onlinePaymentAvailable =
+    Boolean(settings?.onlinePayment?.enabled) && Boolean(settings?.onlinePayment?.canEnable);
+
+  return {
+    enabled: onlinePaymentAvailable,
+    mode: onlinePaymentAvailable ? "checkout" : "request",
+    label: onlinePaymentAvailable
+      ? "Paiement en ligne disponible"
+      : "Paiement en ligne desactive",
+    description: onlinePaymentAvailable
+      ? "Le montant de location peut etre regle en ligne. La caution reste indiquee separement."
+      : "La boutique fonctionne en demande de reservation, sans paiement en ligne.",
+  };
+};
 
 const assertValidStorefrontSlug = (slug) => {
   if (!slug) {
@@ -728,17 +763,30 @@ const buildVisibleStorefrontPacks = ({ catalogPacks, products }) => {
     .sort((left, right) => left.name.localeCompare(right.name, "fr"));
 };
 
+const calculateStorefrontDurationInDays = (startValue, endValue) => {
+  const startDate = new Date(startValue);
+  const endDate = new Date(endValue);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+};
+
 const buildStorefrontPayload = async (
   userId,
   { start, end, storefrontSettings = null, storefrontOwner = null } = {}
 ) => {
-  const [settings, owner, planning, items, itemProfiles, catalogPacks] = await Promise.all([
+  const [settings, owner, planning, items, itemProfiles, catalogPacks, onlinePayment] =
+    await Promise.all([
     storefrontSettings || ensureStorefrontSettingsRecord(userId),
     storefrontOwner || getStorefrontOwnerRow(userId).then(serializeStorefrontOwner),
     getPlanning(userId, { start, end }),
     listItems(userId),
     listItemProfiles(userId),
     listCatalogPacks(userId),
+    buildStorefrontPaymentSummary(userId),
   ]);
 
   const products = buildVisibleStorefrontProducts({
@@ -777,6 +825,7 @@ const buildStorefrontPayload = async (
         0
       ),
     },
+    online_payment: onlinePayment,
   };
 };
 
@@ -969,7 +1018,7 @@ const buildReservationLinesFromCartItems = (preview, payload = {}) => {
   };
 };
 
-export const submitStorefrontRequest = async (userId, payload = {}, options = {}) => {
+const prepareStorefrontReservationRequest = async (userId, payload = {}, options = {}) => {
   const customer = normalizeCustomerPayload(payload.customer);
   const startDate = String(payload.start_date ?? payload.startDate ?? "").trim();
   const endDate = String(payload.end_date ?? payload.endDate ?? "").trim();
@@ -1008,8 +1057,8 @@ export const submitStorefrontRequest = async (userId, payload = {}, options = {}
   });
 
   const visibleProductsById = new Map(preview.products.map((product) => [product.id, product]));
-
   const requestedQuantityByItemId = new Map();
+  const durationInDays = calculateStorefrontDurationInDays(startDate, endDate);
 
   lines.forEach((line) => {
     requestedQuantityByItemId.set(
@@ -1029,6 +1078,42 @@ export const submitStorefrontRequest = async (userId, payload = {}, options = {}
       throw buildAvailabilityConflictError(visibleProduct, requestedQuantity);
     }
   });
+
+  const totalAmount = lines.reduce((sum, line) => {
+    return sum + Number(line.unit_price || 0) * Number(line.quantity || 0) * durationInDays;
+  }, 0);
+  const totalDeposit = lines.reduce((sum, line) => {
+    const product = visibleProductsById.get(line.item_id);
+    return sum + Number(product?.deposit || 0) * Number(line.quantity || 0);
+  }, 0);
+
+  return {
+    customer,
+    startDate,
+    endDate,
+    durationInDays,
+    fulfillmentMode,
+    notes,
+    preview,
+    storefrontSettings,
+    lines,
+    cartSummary,
+    totalAmount,
+    totalDeposit,
+  };
+};
+
+export const submitStorefrontRequest = async (userId, payload = {}, options = {}) => {
+  const {
+    customer,
+    startDate,
+    endDate,
+    fulfillmentMode,
+    notes,
+    storefrontSettings,
+    lines,
+    cartSummary,
+  } = await prepareStorefrontReservationRequest(userId, payload, options);
 
   let client = await findExistingClient(userId, customer);
 
@@ -1089,12 +1174,245 @@ export const submitStorefrontRequest = async (userId, payload = {}, options = {}
   };
 };
 
+const createStorefrontCheckoutRecord = async ({
+  userId,
+  storefrontSlug,
+  stripeAccountId,
+  stripeSessionId,
+  checkoutUrl,
+  requestPayload,
+  amountTotal,
+  depositTotal,
+}) => {
+  await query(
+    `
+      INSERT INTO storefront_checkout_sessions (
+        id,
+        stripe_session_id,
+        user_id,
+        storefront_slug,
+        stripe_account_id,
+        checkout_status,
+        amount_total,
+        deposit_total,
+        request_payload_json,
+        checkout_url
+      )
+      VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9)
+    `,
+    [
+      crypto.randomUUID(),
+      stripeSessionId,
+      userId,
+      storefrontSlug,
+      stripeAccountId,
+      amountTotal,
+      depositTotal,
+      JSON.stringify(requestPayload),
+      checkoutUrl,
+    ]
+  );
+};
+
+const getStorefrontCheckoutSessionRow = async (sessionId) => {
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM storefront_checkout_sessions
+      WHERE stripe_session_id = $1
+      LIMIT 1
+    `,
+    [sessionId]
+  );
+
+  return rows[0] || null;
+};
+
+const buildStorefrontCheckoutUrls = ({
+  storefrontSlug,
+  previewMode = false,
+} = {}) => {
+  const successUrl = new URL(`/shop/${storefrontSlug}`, env.clientUrl);
+  const cancelUrl = new URL(`/shop/${storefrontSlug}`, env.clientUrl);
+
+  if (previewMode) {
+    successUrl.searchParams.set("preview", "1");
+    cancelUrl.searchParams.set("preview", "1");
+  }
+
+  successUrl.searchParams.set("checkout", "success");
+  successUrl.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
+  cancelUrl.searchParams.set("checkout", "cancel");
+
+  return {
+    successUrl: successUrl.toString(),
+    cancelUrl: cancelUrl.toString(),
+  };
+};
+
+export const createStorefrontCheckoutSession = async (userId, payload = {}, options = {}) => {
+  const paymentSettings = await getCustomerPaymentSettings(userId);
+
+  if (!paymentSettings.onlinePayment?.canEnable || !paymentSettings.onlinePayment?.enabled) {
+    throw new HttpError(
+      409,
+      "Le paiement en ligne n'est pas disponible pour cette boutique."
+    );
+  }
+
+  const {
+    customer,
+    startDate,
+    endDate,
+    durationInDays,
+    preview,
+    storefrontSettings,
+    cartSummary,
+    totalAmount,
+    totalDeposit,
+  } = await prepareStorefrontReservationRequest(userId, payload, options);
+  const platformStripeConfig = await getResolvedSuperAdminStripeConfiguration();
+  const { successUrl, cancelUrl } = buildStorefrontCheckoutUrls({
+    storefrontSlug: storefrontSettings.slug,
+    previewMode: Boolean(payload.preview_mode ?? payload.previewMode ?? false),
+  });
+  const session = await createConnectedAccountCheckoutSession({
+    secretKey: platformStripeConfig.secretKey,
+    accountId: paymentSettings.stripe.accountId,
+    successUrl,
+    cancelUrl,
+    customerEmail: customer.email,
+    amountCents: toMoneyCents(totalAmount),
+    lineItemName: `${preview.storefront.display_name} - reservation en ligne`,
+    lineItemDescription:
+      cartSummary ||
+      `Reservation boutique du ${startDate} au ${endDate} (${durationInDays} jour(s))`,
+    metadata: {
+      userId,
+      storefrontSlug: storefrontSettings.slug,
+      paymentFlow: "storefront_online_payment",
+    },
+  });
+
+  await createStorefrontCheckoutRecord({
+    userId,
+    storefrontSlug: storefrontSettings.slug,
+    stripeAccountId: paymentSettings.stripe.accountId,
+    stripeSessionId: session.id,
+    checkoutUrl: session.url,
+    requestPayload: {
+      ...payload,
+      customer,
+      start_date: startDate,
+      end_date: endDate,
+      preview_mode: Boolean(payload.preview_mode ?? payload.previewMode ?? false),
+    },
+    amountTotal: totalAmount,
+    depositTotal: totalDeposit,
+  });
+
+  return {
+    checkout: {
+      session_id: session.id,
+      url: session.url,
+      amount_total: totalAmount,
+      deposit_total: totalDeposit,
+    },
+  };
+};
+
+export const finalizeStorefrontCheckoutSession = async (
+  userId,
+  sessionId,
+  options = {}
+) => {
+  const checkoutRow = await getStorefrontCheckoutSessionRow(sessionId);
+
+  if (!checkoutRow || checkoutRow.user_id !== userId) {
+    throw new HttpError(404, "Session de paiement introuvable.");
+  }
+
+  if (checkoutRow.reservation_id) {
+    try {
+      return {
+        checkout: {
+          session_id: sessionId,
+          status: checkoutRow.checkout_status,
+        },
+        reservation: await getReservationById(userId, checkoutRow.reservation_id),
+      };
+    } catch (_error) {
+      // Ignore a stale reservation link and continue the Stripe verification path below.
+    }
+  }
+
+  const platformStripeConfig = await getResolvedSuperAdminStripeConfiguration();
+  const session = await retrieveConnectedAccountCheckoutSession({
+    secretKey: platformStripeConfig.secretKey,
+    accountId: checkoutRow.stripe_account_id,
+    sessionId,
+  });
+
+  if (session.payment_status !== "paid") {
+    throw new HttpError(409, "Le paiement Stripe n'est pas encore confirme.");
+  }
+
+  const result = await submitStorefrontRequest(
+    userId,
+    parseJsonObject(checkoutRow.request_payload_json),
+    options
+  );
+
+  await query(
+    `
+      UPDATE storefront_checkout_sessions
+      SET checkout_status = 'completed',
+          reservation_id = $2,
+          checkout_completed_at = NOW(),
+          finalized_at = NOW(),
+          updated_at = NOW()
+      WHERE stripe_session_id = $1
+    `,
+    [sessionId, result.reservation.id]
+  );
+
+  return {
+    checkout: {
+      session_id: sessionId,
+      status: "completed",
+    },
+    reservation: result.reservation,
+  };
+};
+
 export const submitPublicStorefrontRequest = async (slug, payload = {}) => {
   const storefront = await resolveStorefrontOwnerBySlug(slug, {
     requirePublished: true,
   });
 
   return submitStorefrontRequest(storefront.user_id, payload, {
+    storefrontSettings: storefront.settings,
+    storefrontOwner: storefront.owner,
+  });
+};
+
+export const createPublicStorefrontCheckoutSession = async (slug, payload = {}) => {
+  const storefront = await resolveStorefrontOwnerBySlug(slug, {
+    requirePublished: true,
+  });
+
+  return createStorefrontCheckoutSession(storefront.user_id, payload, {
+    storefrontSettings: storefront.settings,
+    storefrontOwner: storefront.owner,
+  });
+};
+
+export const finalizePublicStorefrontCheckoutSession = async (slug, sessionId) => {
+  const storefront = await resolveStorefrontOwnerBySlug(slug, {
+    requirePublished: true,
+  });
+
+  return finalizeStorefrontCheckoutSession(storefront.user_id, sessionId, {
     storefrontSettings: storefront.settings,
     storefrontOwner: storefront.owner,
   });

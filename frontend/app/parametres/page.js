@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/app-shell";
 import Panel from "../../components/panel";
@@ -26,11 +27,6 @@ const initialPlatformForm = {
 
 const initialProviderForm = {
   customerPaymentsEnabled: false,
-  stripeMode: "test",
-  publishableKey: "",
-  secretKey: "",
-  webhookSecret: "",
-  accountId: "",
 };
 
 const initialStorefrontForm = {
@@ -64,12 +60,21 @@ const buildTaxRateKey = (rate) => {
   return Number.isFinite(parsedRate) ? parsedRate.toFixed(2) : "";
 };
 
-const formatStripeModeLabel = (value) =>
-  String(value || "test").trim().toLowerCase() === "live" ? "Production" : "Configuration";
-
 const roleLabelByAccount = {
   super_admin: "Super admin",
   provider: "Prestataire",
+};
+
+const stripeToneByStatus = {
+  not_connected: "neutral",
+  pending: "warning",
+  action_required: "danger",
+  ready: "success",
+};
+
+const onlinePaymentToneByStatus = {
+  enabled: "success",
+  disabled: "neutral",
 };
 
 const superAdminSettingSections = [
@@ -106,10 +111,10 @@ const providerSettingSections = [
   },
   {
     id: "payments",
-    label: "Paiements clients",
-    title: "Configuration de vos encaissements clients.",
+    label: "Paiement en ligne",
+    title: "Paiement en ligne de votre boutique.",
     description:
-      "Vos informations de paiement sont masquees, stockees cote serveur et reservees a votre espace.",
+      "Connectez Stripe, verifiez l'etat du compte et activez ou non le paiement en ligne sur votre boutique.",
   },
   {
     id: "taxes",
@@ -134,7 +139,22 @@ const providerSettingSections = [
   },
 ];
 
-export default function SettingsPage() {
+const SettingsPageFallback = () => (
+  <AppShell>
+    <div className="page-stack">
+      <Panel title="Chargement des reglages" description="Preparation de la configuration.">
+        <div className="empty-state">
+          <strong>Lecture des reglages</strong>
+          <span>Les informations apparaissent dans quelques instants.</span>
+        </div>
+      </Panel>
+    </div>
+  </AppShell>
+);
+
+function SettingsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, replaceUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -142,7 +162,7 @@ export default function SettingsPage() {
   const [feedback, setFeedback] = useState(null);
   const [activeSection, setActiveSection] = useState("profile");
   const [platformSettings, setPlatformSettings] = useState(null);
-  const [providerSettings, setProviderSettings] = useState(null);
+  const [paymentSettings, setPaymentSettings] = useState(null);
   const [storefrontSettings, setStorefrontSettings] = useState(null);
   const [accountForm, setAccountForm] = useState(initialAccountForm);
   const [platformForm, setPlatformForm] = useState(initialPlatformForm);
@@ -154,6 +174,8 @@ export default function SettingsPage() {
   const [taxRates, setTaxRates] = useState([]);
   const [savingTaxRate, setSavingTaxRate] = useState(false);
   const [savingStorefront, setSavingStorefront] = useState(false);
+  const [connectingStripe, setConnectingStripe] = useState(false);
+  const [disconnectingStripe, setDisconnectingStripe] = useState(false);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -170,16 +192,13 @@ export default function SettingsPage() {
           apiRequest("/catalog/tax-rates").catch(() => ({ taxRates: [] })),
           apiRequest("/storefront/settings"),
         ]);
-        setProviderSettings(response.customerPayments);
+        setPaymentSettings(response);
         setReservationStatuses(statusesResponse.statuses || defaultReservationStatuses);
         setTaxRates(taxRatesResponse.taxRates || []);
         setStorefrontSettings(storefrontResponse.storefrontSettings);
-        setProviderForm((current) => ({
-          ...current,
-          customerPaymentsEnabled: Boolean(response.customerPayments?.customerPaymentsEnabled),
-          stripeMode: response.customerPayments?.customerStripeMode || "test",
-          accountId: response.customerPayments?.customerStripeAccountId || "",
-        }));
+        setProviderForm({
+          customerPaymentsEnabled: Boolean(response.onlinePayment?.enabled),
+        });
         setStorefrontForm({
           slug: storefrontResponse.storefrontSettings?.slug || "",
           is_published: Boolean(storefrontResponse.storefrontSettings?.is_published),
@@ -218,13 +237,56 @@ export default function SettingsPage() {
   useEffect(() => {
     const validSectionIds = (isSuperAdmin(user)
       ? superAdminSettingSections
-      : providerSettingSections
+    : providerSettingSections
     ).map((section) => section.id);
+    const requestedSection = searchParams.get("section");
+
+    if (requestedSection && validSectionIds.includes(requestedSection) && requestedSection !== activeSection) {
+      setActiveSection(requestedSection);
+      return;
+    }
 
     if (!validSectionIds.includes(activeSection)) {
       setActiveSection("profile");
     }
-  }, [activeSection, user]);
+  }, [activeSection, searchParams, user]);
+
+  useEffect(() => {
+    if (isSuperAdmin(user) || loading) {
+      return;
+    }
+
+    const stripeFlag = searchParams.get("stripe");
+
+    if (!stripeFlag) {
+      return;
+    }
+
+    const cleanedSearchParams = new URLSearchParams(searchParams.toString());
+    cleanedSearchParams.delete("stripe");
+    const cleanedUrl = cleanedSearchParams.toString()
+      ? `/parametres?${cleanedSearchParams.toString()}`
+      : "/parametres";
+
+    if (stripeFlag === "return") {
+      setFeedback({
+        type: "success",
+        message: "Le compte Stripe a ete mis a jour. Verifiez maintenant l'etat affiche puis activez le paiement en ligne si tout est pret.",
+      });
+      router.replace(cleanedUrl);
+      void loadSettings();
+      return;
+    }
+
+    if (stripeFlag === "refresh") {
+      setFeedback({
+        type: "success",
+        message: "Le lien Stripe a ete regenere. Reprenez la configuration si necessaire.",
+      });
+      router.replace(cleanedUrl);
+      void loadSettings();
+    }
+  }, [loading, router, searchParams, user]);
 
   const updatePlatformPriceId = (planId, value) => {
     setPlatformForm((current) => ({
@@ -331,26 +393,12 @@ export default function SettingsPage() {
     setFeedback(null);
 
     try {
-      if (isSuperAdmin(user)) {
-        const response = await apiRequest("/admin/stripe/settings", {
-          method: "PUT",
-          body: platformForm,
-        });
-        setPlatformSettings(response.stripeSettings);
-        setPlatformForm(initialPlatformForm);
-      } else {
-        const response = await apiRequest("/customer-payments/settings", {
-          method: "PUT",
-          body: providerForm,
-        });
-        setProviderSettings(response.customerPayments);
-        setProviderForm((current) => ({
-          ...initialProviderForm,
-          customerPaymentsEnabled: current.customerPaymentsEnabled,
-          stripeMode: current.stripeMode,
-          accountId: current.accountId,
-        }));
-      }
+      const response = await apiRequest("/admin/stripe/settings", {
+        method: "PUT",
+        body: platformForm,
+      });
+      setPlatformSettings(response.stripeSettings);
+      setPlatformForm(initialPlatformForm);
 
       setFeedback({
         type: "success",
@@ -360,6 +408,87 @@ export default function SettingsPage() {
       setFeedback({ type: "error", message: error.message });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSectionChange = (nextSection) => {
+    setActiveSection(nextSection);
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.set("section", nextSection);
+    router.replace(`/parametres?${nextSearchParams.toString()}`);
+  };
+
+  const handleOnlinePaymentToggle = async (nextValue) => {
+    setSaving(true);
+    setFeedback(null);
+
+    try {
+      const response = await apiRequest("/customer-payments/settings", {
+        method: "PUT",
+        body: {
+          customerPaymentsEnabled: nextValue,
+        },
+      });
+      setPaymentSettings(response);
+      setProviderForm({
+        customerPaymentsEnabled: Boolean(response.onlinePayment?.enabled),
+      });
+      setFeedback({
+        type: "success",
+        message: nextValue
+          ? "Le paiement en ligne est maintenant active sur votre boutique."
+          : "Le paiement en ligne a ete desactive sur votre boutique.",
+      });
+    } catch (error) {
+      setFeedback({ type: "error", message: error.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStripeConnect = async () => {
+    setConnectingStripe(true);
+    setFeedback(null);
+
+    try {
+      const response = await apiRequest("/customer-payments/connect-link", {
+        method: "POST",
+      });
+      window.location.href = response.url;
+    } catch (error) {
+      setFeedback({ type: "error", message: error.message });
+      setConnectingStripe(false);
+    }
+  };
+
+  const handleStripeDisconnect = async () => {
+    if (
+      !window.confirm(
+        "Deconnecter ce compte Stripe de Lokify ? Le paiement en ligne sera desactive sur votre boutique."
+      )
+    ) {
+      return;
+    }
+
+    setDisconnectingStripe(true);
+    setFeedback(null);
+
+    try {
+      const response = await apiRequest("/customer-payments/disconnect", {
+        method: "POST",
+      });
+      setPaymentSettings(response);
+      setProviderForm({
+        customerPaymentsEnabled: false,
+      });
+      setFeedback({
+        type: "success",
+        message: "Le compte Stripe a ete deconnecte de votre boutique.",
+      });
+    } catch (error) {
+      setFeedback({ type: "error", message: error.message });
+    } finally {
+      setDisconnectingStripe(false);
     }
   };
 
@@ -448,6 +577,9 @@ export default function SettingsPage() {
   const activeSectionConfig =
     settingSections.find((section) => section.id === activeSection) || settingSections[0];
   const storefrontPath = storefrontForm.slug ? buildStorefrontPath(storefrontForm.slug) : "";
+  const stripeConnection = paymentSettings?.stripe || null;
+  const onlinePayment = paymentSettings?.onlinePayment || null;
+  const paymentOverview = paymentSettings?.overview || null;
 
   return (
     <AppShell>
@@ -471,7 +603,7 @@ export default function SettingsPage() {
               label: section.label,
             }))}
             value={activeSection}
-            onChange={setActiveSection}
+            onChange={handleSectionChange}
             size="sm"
             ariaLabel="Categories des reglages"
           />
@@ -809,139 +941,195 @@ export default function SettingsPage() {
 
             {activeSection === "payments" ? (
             <Panel
-              title="Paiements clients"
-              description="Connectez votre compte de paiement pour encaisser vos clients."
+              title="Paiement en ligne"
+              description="Connectez Stripe, verifiez l'etat du compte et choisissez si votre boutique doit proposer le paiement en ligne."
             >
               <div className="detail-grid">
                 <article className="detail-card">
-                  <strong>Encaissements clients</strong>
-                  <StatusPill tone={providerSettings?.customerPaymentsEnabled ? "success" : "neutral"}>
-                    {providerSettings?.customerPaymentsEnabled ? "Actifs" : "Désactivés"}
+                  <strong>Etat du compte Stripe</strong>
+                  <StatusPill tone={stripeToneByStatus[stripeConnection?.status] || "neutral"}>
+                    {stripeConnection?.statusLabel || "Compte Stripe non connecte"}
                   </StatusPill>
                 </article>
                 <article className="detail-card">
-                  <strong>Environnement</strong>
+                  <strong>Paiement en ligne</strong>
+                  <StatusPill tone={onlinePaymentToneByStatus[onlinePayment?.status] || "neutral"}>
+                    {onlinePayment?.enabled ? "Active" : "Desactive"}
+                  </StatusPill>
+                </article>
+                <article className="detail-card">
+                  <strong>Paiements actives</strong>
                   <span className="muted-text">
-                    {formatStripeModeLabel(providerSettings?.customerStripeMode)}
+                    {stripeConnection?.chargesEnabled ? "Oui" : "Non"}
                   </span>
                 </article>
                 <article className="detail-card">
-                  <strong>Cle publique</strong>
+                  <strong>Virements actives</strong>
                   <span className="muted-text">
-                  {providerSettings?.customerStripePublishableKeyPreview || "Non configurée"}
-                  </span>
-                </article>
-                <article className="detail-card">
-                  <strong>Cle secrete</strong>
-                  <span className="muted-text">
-                  {providerSettings?.customerStripeSecretKeyPreview || "Non configurée"}
+                    {stripeConnection?.payoutsEnabled ? "Oui" : "Non"}
                   </span>
                 </article>
               </div>
 
-              <form className="form-grid" onSubmit={handleSave}>
-                <label className="detail-card">
-                  <strong>Activer les paiements clients</strong>
+              <div className="card-list">
+                <article className="detail-card">
                   <div className="row-actions">
-                    <input
-                      type="checkbox"
-                      checked={providerForm.customerPaymentsEnabled}
-                      onChange={(event) =>
-                        setProviderForm((current) => ({
-                          ...current,
-                          customerPaymentsEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                    <span className="muted-text">
-                      Active uniquement les paiements du prestataire courant.
-                    </span>
+                    <div>
+                      <strong>Etat du compte Stripe</strong>
+                      <p className="muted-text">
+                        {stripeConnection?.displayName
+                          ? `Compte connecte: ${stripeConnection.displayName}`
+                          : "Connectez votre compte Stripe pour recevoir les paiements de votre boutique."}
+                      </p>
+                    </div>
+                    <StatusPill tone={stripeToneByStatus[stripeConnection?.status] || "neutral"}>
+                      {stripeConnection?.statusLabel || "Compte Stripe non connecte"}
+                    </StatusPill>
                   </div>
-                </label>
 
-                <div className="field">
-                  <label htmlFor="provider-mode">Environnement de paiement</label>
-                  <select
-                    id="provider-mode"
-                    value={providerForm.stripeMode}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({
-                        ...current,
-                        stripeMode: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="test">Configuration</option>
-                    <option value="live">Production</option>
-                  </select>
-                </div>
+                  <p className="muted-text">
+                    {stripeConnection?.syncError ||
+                      stripeConnection?.requirementsSummary ||
+                      (stripeConnection?.chargesEnabled && stripeConnection?.payoutsEnabled
+                        ? "Votre compte Stripe est pret a accepter les paiements et les virements."
+                        : "Finalisez votre compte Stripe pour activer les paiements et les virements.")}
+                  </p>
 
-                <div className="field">
-                  <label htmlFor="provider-account">Identifiant du compte Stripe</label>
-                  <input
-                    id="provider-account"
-                    value={providerForm.accountId}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({
-                        ...current,
-                        accountId: event.target.value,
-                      }))
-                    }
-                    placeholder="acct_..."
-                  />
-                </div>
+                  {stripeConnection?.requirementsDue?.length ? (
+                    <ul className="public-shop-cart-issues">
+                      {stripeConnection.requirementsDue.map((requirement) => (
+                        <li key={requirement}>{requirement}</li>
+                      ))}
+                    </ul>
+                  ) : null}
 
-                <div className="field">
-                  <label htmlFor="provider-publishable">Cle publique Stripe</label>
-                  <input
-                    id="provider-publishable"
-                    value={providerForm.publishableKey}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({
-                        ...current,
-                        publishableKey: event.target.value,
-                      }))
-                    }
-                    placeholder="pk_..."
-                  />
-                </div>
+                  {stripeConnection?.disabledReason ? (
+                    <p className="field-hint">Action requise Stripe: {stripeConnection.disabledReason}</p>
+                  ) : null}
 
-                <div className="field">
-                  <label htmlFor="provider-secret">Cle privee Stripe</label>
-                  <input
-                    id="provider-secret"
-                    type="password"
-                    value={providerForm.secretKey}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({
-                        ...current,
-                        secretKey: event.target.value,
-                      }))
-                    }
-                    placeholder="sk_..."
-                  />
-                </div>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="button primary"
+                      onClick={() => void handleStripeConnect()}
+                      disabled={connectingStripe || disconnectingStripe || !stripeConnection?.platformReady}
+                    >
+                      {connectingStripe
+                        ? "Ouverture..."
+                        : stripeConnection?.connected
+                          ? onlinePayment?.canEnable
+                            ? "Mettre a jour Stripe"
+                            : "Finaliser Stripe"
+                          : "Connecter mon compte Stripe"}
+                    </button>
 
-                <div className="field">
-                  <label htmlFor="provider-webhook">Secret de notification</label>
-                  <input
-                    id="provider-webhook"
-                    type="password"
-                    value={providerForm.webhookSecret}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({
-                        ...current,
-                        webhookSecret: event.target.value,
-                      }))
-                    }
-                    placeholder="whsec_..."
-                  />
-                </div>
+                    {stripeConnection?.connected ? (
+                      <button
+                        type="button"
+                        className="button ghost"
+                        onClick={() => void handleStripeDisconnect()}
+                        disabled={disconnectingStripe || connectingStripe}
+                      >
+                        {disconnectingStripe ? "Deconnexion..." : "Deconnecter"}
+                      </button>
+                    ) : null}
+                  </div>
 
-                <button type="submit" className="button primary" disabled={saving}>
-                  {saving ? "Enregistrement..." : "Enregistrer la configuration de paiement"}
-                </button>
-              </form>
+                  {!stripeConnection?.platformReady ? (
+                    <p className="field-hint">
+                      La configuration Stripe de la plateforme n&apos;est pas encore disponible.
+                    </p>
+                  ) : null}
+                </article>
+
+                <article className="detail-card">
+                  <div className="row-actions">
+                    <div>
+                      <strong>Paiement en ligne</strong>
+                      <p className="muted-text">
+                        Lorsque le paiement en ligne est active, vos clients peuvent regler
+                        directement leurs reservations sur votre boutique en ligne.
+                      </p>
+                    </div>
+                    <StatusPill tone={onlinePaymentToneByStatus[onlinePayment?.status] || "neutral"}>
+                      {providerForm.customerPaymentsEnabled
+                        ? "Paiement en ligne active"
+                        : "Paiement en ligne desactive"}
+                    </StatusPill>
+                  </div>
+
+                  <p className="muted-text">
+                    {onlinePayment?.message ||
+                      "Connectez Stripe pour proposer ensuite le paiement en ligne sur votre boutique."}
+                  </p>
+
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="button primary"
+                      onClick={() => void handleOnlinePaymentToggle(true)}
+                      disabled={
+                        saving || providerForm.customerPaymentsEnabled || !onlinePayment?.canEnable
+                      }
+                    >
+                      {saving && !providerForm.customerPaymentsEnabled
+                        ? "Activation..."
+                        : "Activer le paiement en ligne"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button ghost"
+                      onClick={() => void handleOnlinePaymentToggle(false)}
+                      disabled={saving || !providerForm.customerPaymentsEnabled}
+                    >
+                      {saving && providerForm.customerPaymentsEnabled
+                        ? "Desactivation..."
+                        : "Desactiver le paiement en ligne"}
+                    </button>
+                  </div>
+
+                  {!onlinePayment?.canEnable ? (
+                    <p className="field-hint">
+                      Le paiement en ligne reste bloque tant que le compte Stripe n&apos;est pas
+                      connecte et finalise.
+                    </p>
+                  ) : null}
+                </article>
+
+                <article className="detail-card">
+                  <div className="row-actions">
+                    <div>
+                      <strong>Etat general</strong>
+                      <p className="muted-text">
+                        Vue d&apos;ensemble de la disponibilite des paiements sur votre boutique.
+                      </p>
+                    </div>
+                    <StatusPill tone={paymentOverview?.paymentAvailable ? "success" : "neutral"}>
+                      {paymentOverview?.label || "Paiements indisponibles"}
+                    </StatusPill>
+                  </div>
+
+                  <p className="muted-text">
+                    {paymentOverview?.message ||
+                      "Connectez Stripe et finalisez la configuration pour proposer le paiement en ligne."}
+                  </p>
+
+                  <div className="detail-grid">
+                    <article className="detail-card">
+                      <strong>Compte Stripe</strong>
+                      <span className="muted-text">
+                        {stripeConnection?.connected ? "Connecte" : "Non connecte"}
+                      </span>
+                    </article>
+                    <article className="detail-card">
+                      <strong>Paiement en ligne</strong>
+                      <span className="muted-text">
+                        {providerForm.customerPaymentsEnabled ? "Active" : "Desactive"}
+                      </span>
+                    </article>
+                  </div>
+                </article>
+              </div>
             </Panel>
             ) : null}
 
@@ -1084,5 +1272,13 @@ export default function SettingsPage() {
         ) : null}
       </div>
     </AppShell>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<SettingsPageFallback />}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }

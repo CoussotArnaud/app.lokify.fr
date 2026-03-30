@@ -2,6 +2,8 @@ import { Router } from "express";
 
 import {
   getPublicStorefront,
+  postFinalizePublicStorefrontCheckout,
+  postPublicStorefrontCheckout,
   postPublicStorefrontRequest,
 } from "../controllers/storefront.controller.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
@@ -17,5 +19,11 @@ const storefrontRequestRateLimit = createRateLimitMiddleware({
 
 router.get("/:slug", getPublicStorefront);
 router.post("/:slug/requests", storefrontRequestRateLimit, postPublicStorefrontRequest);
+router.post("/:slug/checkout", storefrontRequestRateLimit, postPublicStorefrontCheckout);
+router.post(
+  "/:slug/checkout-sessions/:sessionId/finalize",
+  storefrontRequestRateLimit,
+  postFinalizePublicStorefrontCheckout
+);
 
 export default router;

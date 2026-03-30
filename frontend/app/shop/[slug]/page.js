@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import BrandLogo from "../../../components/brand-logo";
 import StatusPill from "../../../components/status-pill";
+import { useAuth } from "../../../components/auth-provider";
 import { apiRequest } from "../../../lib/api";
 import { formatCurrency } from "../../../lib/date";
 import { buildStorefrontPath } from "../../../lib/storefront";
@@ -123,9 +124,22 @@ const buildAvailabilityMessage = (label, reason) =>
     ? `${label} est en rupture de stock.`
     : `${label} est indisponible sur cette periode.`;
 
+const getStorefrontDraftStorageKey = (slug, previewMode) => {
+  const normalizedSlug = String(slug || "").trim();
+  return normalizedSlug ? `lokify:storefront:${previewMode ? "preview" : "public"}:${normalizedSlug}` : "";
+};
+
 export default function PublicStorefrontPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { ready, isAuthenticated } = useAuth();
   const params = useParams();
   const slug = Array.isArray(params?.slug) ? params.slug[0] : String(params?.slug || "");
+  const isPreviewMode = searchParams.get("preview") === "1";
+  const checkoutStatus = searchParams.get("checkout");
+  const checkoutSessionId = searchParams.get("session_id") || "";
+  const searchParamsString = searchParams.toString();
+  const draftStorageKey = getStorefrontDraftStorageKey(slug, isPreviewMode);
   const [shopState, setShopState] = useState(initialShopState);
   const [bookingForm, setBookingForm] = useState({
     start_date: buildDateValue(1),
@@ -136,9 +150,76 @@ export default function PublicStorefrontPage() {
   const [submitError, setSubmitError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFinalizingCheckout, setIsFinalizingCheckout] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [productConfigurator, setProductConfigurator] = useState(null);
   const [visibleProductLimit, setVisibleProductLimit] = useState(initialVisibleProductCount);
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const [draftReady, setDraftReady] = useState(false);
+
+  useEffect(() => {
+    if (!isPreviewMode || !ready || isAuthenticated) {
+      return;
+    }
+
+    router.replace("/login");
+  }, [isAuthenticated, isPreviewMode, ready, router]);
+
+  useEffect(() => {
+    if (!draftStorageKey) {
+      setDraftReady(false);
+      return;
+    }
+
+    try {
+      const rawDraft = window.sessionStorage.getItem(draftStorageKey);
+
+      if (rawDraft) {
+        const parsedDraft = JSON.parse(rawDraft);
+
+        if (parsedDraft?.bookingForm) {
+          setBookingForm((current) => ({
+            ...current,
+            ...parsedDraft.bookingForm,
+          }));
+        }
+
+        if (Array.isArray(parsedDraft?.cartEntries)) {
+          setCartEntries(parsedDraft.cartEntries);
+        }
+
+        if (parsedDraft?.customerForm) {
+          setCustomerForm((current) => ({
+            ...current,
+            ...parsedDraft.customerForm,
+          }));
+        }
+      }
+    } catch (_error) {
+      // Ignore corrupted draft state and continue with the default storefront state.
+    } finally {
+      setDraftReady(true);
+    }
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftReady || !draftStorageKey) {
+      return;
+    }
+
+    try {
+      window.sessionStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({
+          bookingForm,
+          cartEntries,
+          customerForm,
+        })
+      );
+    } catch (_error) {
+      // Ignore storage write errors and keep the storefront usable.
+    }
+  }, [bookingForm, cartEntries, customerForm, draftReady, draftStorageKey]);
 
   useEffect(() => {
     if (!slug) {
@@ -147,6 +228,10 @@ export default function PublicStorefrontPage() {
         error: "Boutique introuvable.",
         data: null,
       });
+      return;
+    }
+
+    if (isPreviewMode && (!ready || !isAuthenticated)) {
       return;
     }
 
@@ -173,10 +258,14 @@ export default function PublicStorefrontPage() {
 
       try {
         const response = await apiRequest(
-          `/public/storefront/${encodeURIComponent(slug)}?start=${encodeURIComponent(
-            bookingForm.start_date
-          )}&end=${encodeURIComponent(bookingForm.end_date)}`,
-          { auth: false }
+          isPreviewMode
+            ? `/storefront?start=${encodeURIComponent(bookingForm.start_date)}&end=${encodeURIComponent(
+                bookingForm.end_date
+              )}`
+            : `/public/storefront/${encodeURIComponent(slug)}?start=${encodeURIComponent(
+                bookingForm.start_date
+              )}&end=${encodeURIComponent(bookingForm.end_date)}`,
+          isPreviewMode ? {} : { auth: false }
         );
 
         if (cancelled) {
@@ -206,7 +295,7 @@ export default function PublicStorefrontPage() {
     return () => {
       cancelled = true;
     };
-  }, [slug, bookingForm.start_date, bookingForm.end_date]);
+  }, [slug, bookingForm.start_date, bookingForm.end_date, isPreviewMode, ready, isAuthenticated, reloadVersion]);
 
   const products = shopState.data?.products || [];
   const packs = shopState.data?.packs || [];
@@ -230,6 +319,41 @@ export default function PublicStorefrontPage() {
   )}`;
   const productById = new Map(products.map((product) => [product.id, product]));
   const packById = new Map(packs.map((pack) => [pack.id, pack]));
+  const paymentSummary = shopState.data?.online_payment || {
+    enabled: false,
+    mode: "request",
+    label: "Paiement en ligne desactive",
+    description: "La boutique fonctionne en demande de reservation, sans paiement en ligne.",
+  };
+  const checkoutActionLabel = paymentSummary.enabled
+    ? "Finaliser et payer"
+    : "Finaliser ma demande";
+  const checkoutSubmitLabel = isSubmitting
+    ? paymentSummary.enabled
+      ? "Redirection..."
+      : "Enregistrement..."
+    : paymentSummary.enabled
+      ? "Continuer vers le paiement"
+      : "Envoyer ma demande";
+  const clearDraft = () => {
+    if (!draftStorageKey) {
+      return;
+    }
+
+    try {
+      window.sessionStorage.removeItem(draftStorageKey);
+    } catch (_error) {
+      // Ignore storage cleanup failures after checkout.
+    }
+  };
+  const cleanCheckoutReturnParams = () => {
+    const nextSearchParams = new URLSearchParams(searchParamsString);
+    nextSearchParams.delete("checkout");
+    nextSearchParams.delete("session_id");
+    const nextQuery = nextSearchParams.toString();
+
+    router.replace(nextQuery ? `${publicPath}?${nextQuery}` : publicPath);
+  };
 
   useEffect(() => {
     const hasOpenModal = isCheckoutModalOpen || Boolean(productConfigurator);
@@ -240,7 +364,7 @@ export default function PublicStorefrontPage() {
 
     const previousOverflow = document.body.style.overflow;
     const handleKeyDown = (event) => {
-      if (event.key === "Escape" && !isSubmitting) {
+      if (event.key === "Escape" && !isSubmitting && !isFinalizingCheckout) {
         setIsCheckoutModalOpen(false);
         setProductConfigurator(null);
       }
@@ -253,7 +377,92 @@ export default function PublicStorefrontPage() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isCheckoutModalOpen, productConfigurator, isSubmitting]);
+  }, [isCheckoutModalOpen, productConfigurator, isFinalizingCheckout, isSubmitting]);
+
+  useEffect(() => {
+    if (!checkoutStatus) {
+      return;
+    }
+
+    if (checkoutStatus === "cancel") {
+      setSubmitError("Le paiement en ligne a ete annule. Vous pouvez reprendre votre panier.");
+      setSuccessMessage("");
+      setIsCheckoutModalOpen(false);
+      cleanCheckoutReturnParams();
+      return;
+    }
+
+    if (checkoutStatus !== "success" || !checkoutSessionId) {
+      return;
+    }
+
+    if (isPreviewMode && (!ready || !isAuthenticated)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const finalizeCheckout = async () => {
+      setIsFinalizingCheckout(true);
+      setSubmitError("");
+      setSuccessMessage("");
+
+      try {
+        const response = await apiRequest(
+          isPreviewMode
+            ? `/storefront/checkout-sessions/${encodeURIComponent(checkoutSessionId)}/finalize`
+            : `/public/storefront/${encodeURIComponent(slug)}/checkout-sessions/${encodeURIComponent(
+                checkoutSessionId
+              )}/finalize`,
+          isPreviewMode ? { method: "POST" } : { method: "POST", auth: false }
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        clearDraft();
+        setSuccessMessage(
+          response.reservation?.status === "confirmed"
+            ? `Paiement confirme. Reservation ${response.reservation.reference} enregistree.`
+            : `Paiement confirme. Reservation ${response.reservation.reference} transmise au prestataire.`
+        );
+        setCustomerForm(initialCustomerForm);
+        setCartEntries([]);
+        setIsCheckoutModalOpen(false);
+        setProductConfigurator(null);
+        setReloadVersion((currentValue) => currentValue + 1);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setSubmitError(error.message || "Impossible de confirmer ce paiement en ligne.");
+      } finally {
+        if (!cancelled) {
+          setIsFinalizingCheckout(false);
+          cleanCheckoutReturnParams();
+        }
+      }
+    };
+
+    void finalizeCheckout();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    checkoutSessionId,
+    checkoutStatus,
+    draftStorageKey,
+    isAuthenticated,
+    isPreviewMode,
+    publicPath,
+    ready,
+    router,
+    searchParamsString,
+    slug,
+  ]);
 
   let totalEstimatedAmount = 0;
   let totalEstimatedDeposit = 0;
@@ -617,7 +826,7 @@ export default function PublicStorefrontPage() {
   };
 
   const closeCheckoutModal = () => {
-    if (isSubmitting) {
+    if (isSubmitting || isFinalizingCheckout) {
       return;
     }
 
@@ -650,6 +859,21 @@ export default function PublicStorefrontPage() {
     setIsCheckoutModalOpen(true);
   };
 
+  const buildCheckoutPayload = () => ({
+    customer: customerForm,
+    start_date: bookingForm.start_date,
+    end_date: bookingForm.end_date,
+    notes: customerForm.notes,
+    preview_mode: isPreviewMode,
+    cart_items: cartEntries.map((entry) => ({
+      entry_type: entry.entry_type,
+      item_id: entry.item_id || undefined,
+      pack_id: entry.pack_id || undefined,
+      quantity: clampPositiveQuantity(entry.quantity, 1),
+      option_ids: normalizeOptionIds(entry.option_ids),
+    })),
+  });
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setSubmitError("");
@@ -668,24 +892,46 @@ export default function PublicStorefrontPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await apiRequest(`/public/storefront/${encodeURIComponent(slug)}/requests`, {
-        method: "POST",
-        auth: false,
-        body: {
-          customer: customerForm,
-          start_date: bookingForm.start_date,
-          end_date: bookingForm.end_date,
-          notes: customerForm.notes,
-          cart_items: cartEntries.map((entry) => ({
-            entry_type: entry.entry_type,
-            item_id: entry.item_id || undefined,
-            pack_id: entry.pack_id || undefined,
-            quantity: clampPositiveQuantity(entry.quantity, 1),
-            option_ids: normalizeOptionIds(entry.option_ids),
-          })),
-        },
-      });
+      const payload = buildCheckoutPayload();
 
+      if (paymentSummary.enabled) {
+        const response = await apiRequest(
+          isPreviewMode
+            ? "/storefront/checkout"
+            : `/public/storefront/${encodeURIComponent(slug)}/checkout`,
+          isPreviewMode
+            ? {
+                method: "POST",
+                body: payload,
+              }
+            : {
+                method: "POST",
+                auth: false,
+                body: payload,
+              }
+        );
+
+        window.location.href = response.checkout.url;
+        return;
+      }
+
+      const response = await apiRequest(
+        isPreviewMode
+          ? "/storefront/requests"
+          : `/public/storefront/${encodeURIComponent(slug)}/requests`,
+        isPreviewMode
+          ? {
+              method: "POST",
+              body: payload,
+            }
+          : {
+              method: "POST",
+              auth: false,
+              body: payload,
+            }
+      );
+
+      clearDraft();
       setSuccessMessage(
         response.reservation.status === "confirmed"
           ? `Reservation ${response.reservation.reference} confirmee.`
@@ -695,8 +941,14 @@ export default function PublicStorefrontPage() {
       setCartEntries([]);
       setIsCheckoutModalOpen(false);
       setProductConfigurator(null);
+      setReloadVersion((currentValue) => currentValue + 1);
     } catch (error) {
-      setSubmitError(error.message || "Impossible d'enregistrer cette reservation.");
+      setSubmitError(
+        error.message ||
+          (paymentSummary.enabled
+            ? "Impossible d'ouvrir le paiement en ligne."
+            : "Impossible d'enregistrer cette reservation.")
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -718,11 +970,14 @@ export default function PublicStorefrontPage() {
           </nav>
 
           <div className="public-shop-topbar-actions">
-            <StatusPill tone={shopState.error ? "neutral" : "success"}>
-              Boutique publique
+            <StatusPill tone={isPreviewMode ? "warning" : shopState.error ? "neutral" : "success"}>
+              {isPreviewMode ? "Apercu prestataire" : "Boutique publique"}
             </StatusPill>
-            <Link href={publicPath} className="button ghost">
-              Lien direct
+            <StatusPill tone={paymentSummary.enabled ? "success" : "neutral"}>
+              {paymentSummary.enabled ? "Paiement en ligne" : "Demande de reservation"}
+            </StatusPill>
+            <Link href={publicPath} className="button ghost" target="_blank">
+              {isPreviewMode ? "Version publique" : "Lien direct"}
             </Link>
           </div>
         </div>
@@ -730,6 +985,9 @@ export default function PublicStorefrontPage() {
 
       <div className="storefront-shell public-shop-shell">
         {shopState.error ? <p className="feedback error">{shopState.error}</p> : null}
+        {isFinalizingCheckout ? (
+          <p className="feedback success">Confirmation du paiement en cours...</p>
+        ) : null}
         {successMessage ? <p className="feedback success">{successMessage}</p> : null}
 
         <section className="public-shop-stage">
@@ -743,7 +1001,9 @@ export default function PublicStorefrontPage() {
                 </div>
 
                 <div className="public-shop-provider-copy">
-                  <p className="eyebrow">Reservation en ligne</p>
+                  <p className="eyebrow">
+                    {paymentSummary.enabled ? "Paiement en ligne" : "Reservation en ligne"}
+                  </p>
                   <h1>{storefrontName}</h1>
                   <div className="public-shop-provider-meta">
                     <span>{providerLocation}</span>
@@ -752,8 +1012,9 @@ export default function PublicStorefrontPage() {
                     <span>{selectableProductCount + selectablePackCount} element(s) reservables</span>
                   </div>
                   <p>
-                    Choisissez vos dates, ajoutez plusieurs produits, packs et options, puis
-                    verifiez l'ensemble du panier avant d'envoyer votre demande.
+                    {paymentSummary.enabled
+                      ? "Choisissez vos dates, ajoutez plusieurs produits, packs et options, puis verifiez l'ensemble du panier avant de passer au paiement en ligne."
+                      : "Choisissez vos dates, ajoutez plusieurs produits, packs et options, puis verifiez l'ensemble du panier avant d'envoyer votre demande."}
                   </p>
                 </div>
               </div>
@@ -1039,6 +1300,29 @@ export default function PublicStorefrontPage() {
                 </div>
               </section>
 
+              <section className="public-shop-sidebar-card public-shop-cart-card">
+                <div className="public-shop-cart-header">
+                  <div>
+                    <h2>{paymentSummary.enabled ? "Paiement en ligne" : "Mode de validation"}</h2>
+                    <p>{paymentSummary.description}</p>
+                  </div>
+                  <StatusPill tone={paymentSummary.enabled ? "success" : "neutral"}>
+                    {paymentSummary.label}
+                  </StatusPill>
+                </div>
+
+                <div className="public-shop-cart-summary">
+                  <div className="public-shop-cart-summary-row">
+                    <span>Montant location</span>
+                    <strong>{formatCurrency(totalEstimatedAmount)}</strong>
+                  </div>
+                  <div className="public-shop-cart-summary-row">
+                    <span>Caution</span>
+                    <strong>{formatCurrency(totalEstimatedDeposit)}</strong>
+                  </div>
+                </div>
+              </section>
+
               <section id="shop-cart" className="public-shop-sidebar-card public-shop-cart-card">
                 <div className="public-shop-cart-header">
                   <div>
@@ -1176,7 +1460,10 @@ export default function PublicStorefrontPage() {
                 ) : (
                   <div className="public-shop-cart-empty">
                     <strong>Votre panier est vide</strong>
-                    <span>Ajoutez un ou plusieurs produits ou packs pour preparer votre demande.</span>
+                    <span>
+                      Ajoutez un ou plusieurs produits ou packs pour preparer votre
+                      {paymentSummary.enabled ? " paiement." : " demande."}
+                    </span>
                   </div>
                 )}
 
@@ -1211,9 +1498,9 @@ export default function PublicStorefrontPage() {
                   type="button"
                   className="button primary public-shop-sidebar-cta"
                   onClick={openCheckoutModal}
-                  disabled={shopState.loading || !cartHasEntries}
+                  disabled={shopState.loading || !cartHasEntries || isFinalizingCheckout}
                 >
-                  {shopState.loading ? "Mise a jour..." : "Verifier la disponibilite du panier"}
+                  {shopState.loading ? "Mise a jour..." : checkoutActionLabel}
                 </button>
               </section>
 
@@ -1221,7 +1508,7 @@ export default function PublicStorefrontPage() {
                 <strong>Besoin d'une demande personnalisee ?</strong>
                 <span>
                   Ajoutez une note dans le formulaire final si vous avez une contrainte ou une
-                  precision logistique.
+                  precision logistique{paymentSummary.enabled ? " avant le passage au paiement" : ""}.
                 </span>
               </section>
             </div>
@@ -1254,7 +1541,7 @@ export default function PublicStorefrontPage() {
                   type="button"
                   className="public-shop-modal-close"
                   onClick={closeProductConfigurator}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isFinalizingCheckout}
                   aria-label="Fermer la fenetre options"
                 >
                   x
@@ -1309,9 +1596,19 @@ export default function PublicStorefrontPage() {
             <section className="public-shop-modal" role="dialog" aria-modal="true" aria-labelledby="public-shop-modal-title">
               <div className="public-shop-modal-header">
                 <div>
-                  <p className="eyebrow">Reservation</p>
-                  <h2 id="public-shop-modal-title">Finalisez votre demande</h2>
-                  <p>Renseignez vos coordonnees pour envoyer l'ensemble du panier au prestataire.</p>
+                  <p className="eyebrow">
+                    {paymentSummary.enabled ? "Paiement en ligne" : "Reservation"}
+                  </p>
+                  <h2 id="public-shop-modal-title">
+                    {paymentSummary.enabled
+                      ? "Finalisez et payez votre reservation"
+                      : "Finalisez votre demande"}
+                  </h2>
+                  <p>
+                    {paymentSummary.enabled
+                      ? "Renseignez vos coordonnees, puis vous serez redirige vers Stripe pour regler le montant de location."
+                      : "Renseignez vos coordonnees pour envoyer l'ensemble du panier au prestataire."}
+                  </p>
                 </div>
 
                 <button
@@ -1321,7 +1618,7 @@ export default function PublicStorefrontPage() {
                   disabled={isSubmitting}
                   aria-label="Fermer la fenetre"
                 >
-                  ×
+                  x
                 </button>
               </div>
 
@@ -1458,16 +1755,17 @@ export default function PublicStorefrontPage() {
                   {submitError ? <p className="feedback error">{submitError}</p> : null}
 
                   <p className="public-shop-submit-copy">
-                    La demande sera creee avec le panier complet, les quantites, les options et la
-                    periode selectionnee.
+                    {paymentSummary.enabled
+                      ? "Le montant de location sera regle en ligne. La caution reste affichee separement et pourra etre geree par le prestataire."
+                      : "La demande sera creee avec le panier complet, les quantites, les options et la periode selectionnee."}
                   </p>
 
                   <button
                     type="submit"
                     className="button primary"
-                    disabled={isSubmitting || !cartReadyForCheckout}
+                    disabled={isSubmitting || isFinalizingCheckout || !cartReadyForCheckout}
                   >
-                    {isSubmitting ? "Enregistrement..." : "Envoyer ma demande"}
+                    {checkoutSubmitLabel}
                   </button>
                 </form>
               </div>

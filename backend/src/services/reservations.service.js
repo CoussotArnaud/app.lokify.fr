@@ -730,7 +730,7 @@ const getReservationHeaderById = async (userId, reservationId, executor = query)
   return rows[0];
 };
 
-const getReservationById = async (userId, reservationId) => {
+export const getReservationById = async (userId, reservationId) => {
   const reservation = await getReservationHeaderById(userId, reservationId);
   const [hydratedReservation] = await hydrateReservations(userId, [reservation]);
   return hydratedReservation;

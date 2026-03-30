@@ -34,9 +34,12 @@ const paymentStatusMeta = {
 
 const stripeStatusMeta = {
   configured: { label: "Connecte", tone: "success" },
+  ready: { label: "Connecte", tone: "success" },
   not_configured: { label: "Non connecte", tone: "neutral" },
+  not_connected: { label: "Non connecte", tone: "neutral" },
   pending: { label: "En attente", tone: "info" },
   restricted: { label: "Restreint", tone: "warning" },
+  action_required: { label: "Action requise", tone: "warning" },
 };
 
 const renewalStatusMeta = {
