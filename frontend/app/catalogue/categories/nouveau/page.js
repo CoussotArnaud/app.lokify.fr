@@ -1,85 +1,95 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../../../components/app-shell";
 import Panel from "../../../../components/panel";
 import StatusPill from "../../../../components/status-pill";
-import { categoryBlueprints } from "../../../../lib/lokify-data";
-import { saveCustomCategory, slugifyLabel } from "../../../../lib/workspace-store";
+import useLokifyWorkspace from "../../../../hooks/use-lokify-workspace";
+import { slugifyLabel } from "../../../../lib/workspace-store";
 
 const buildDefaultForm = () => ({
-  type: "Evenementiel",
   name: "",
-  filters: ["format"],
-  inspectionEnabled: true,
-  durations: [{ label: "Journee", hours: 10 }],
-  ranges: [{ label: "Week-end", minHours: 24, maxHours: 48 }],
+  description: "",
+  icon_name: "",
+  image_url: "",
 });
 
-export default function NewCategoryPage() {
+function CategoryEditorPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const workspace = useLokifyWorkspace();
   const [form, setForm] = useState(buildDefaultForm());
   const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+  const editingSlug = searchParams.get("category") || "";
+  const editingCategory = workspace.catalogCategories.find((category) => category.slug === editingSlug) || null;
+  const categoryProducts = workspace.products.filter((product) => product.categorySlug === editingSlug);
 
-  const updateFilter = (index, value) => {
-    setForm((current) => ({
-      ...current,
-      filters: current.filters.map((filter, filterIndex) => (filterIndex === index ? value : filter)),
-    }));
-  };
-
-  const updateListValue = (collection, index, field, value) => {
-    setForm((current) => ({
-      ...current,
-      [collection]: current[collection].map((entry, entryIndex) =>
-        entryIndex === index
-          ? {
-              ...entry,
-              [field]:
-                field === "hours" || field === "minHours" || field === "maxHours"
-                  ? Number(value)
-                  : value,
-            }
-          : entry
-      ),
-    }));
-  };
-
-  const applyBlueprint = (blueprintId) => {
-    const blueprint = categoryBlueprints.find((entry) => entry.id === blueprintId);
-    if (!blueprint) {
+  useEffect(() => {
+    if (!editingCategory) {
+      setForm(buildDefaultForm());
       return;
     }
 
     setForm({
-      type: blueprint.type,
-      name: blueprint.name,
-      filters: [...blueprint.filters],
-      inspectionEnabled: blueprint.inspectionEnabled,
-      durations: blueprint.durations.map((duration) => ({ ...duration })),
-      ranges: blueprint.ranges.map((range) => ({ ...range })),
+      name: editingCategory.name || "",
+      description: editingCategory.description || "",
+      icon_name: editingCategory.icon_name || "",
+      image_url: editingCategory.image_url || "",
     });
-    setFeedback("Modele applique pour accelerer la configuration.");
+  }, [editingCategory]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setFeedback("");
+
+    try {
+      const slug = editingSlug || slugifyLabel(form.name);
+      await workspace.saveCatalogCategory({
+        slug,
+        name: form.name,
+        description: form.description,
+        icon_name: form.icon_name,
+        image_url: form.image_url,
+        filters: [],
+        durations: [],
+        ranges: [],
+        inspection_enabled: false,
+        status: "active",
+      });
+      setFeedback(editingSlug ? "Categorie mise a jour." : "Categorie creee.");
+
+      if (!editingSlug) {
+        router.replace(`/catalogue/categories/nouveau?category=${slug}`);
+      }
+    } catch (submissionError) {
+      setError(submissionError.message);
+    }
   };
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
+  const handleDelete = async () => {
+    if (!editingSlug || !window.confirm("Supprimer cette categorie et retirer son affectation des produits ?")) {
+      return;
+    }
 
-    saveCustomCategory({
-      id: slugifyLabel(form.name),
-      slug: slugifyLabel(form.name),
-      name: form.name,
-      type: form.type,
-      description: `${form.name} · categorie configuree dans Lokify.`,
-      filters: form.filters.filter(Boolean),
-      inspectionEnabled: form.inspectionEnabled,
-      durations: form.durations.filter((duration) => duration.label),
-      ranges: form.ranges.filter((range) => range.label),
-      status: "active",
-    });
+    setError("");
+    setFeedback("");
 
-    setFeedback("Categorie enregistree. Elle est maintenant prete a apparaitre dans le catalogue.");
+    try {
+      await workspace.deleteCatalogCategory(editingSlug);
+      router.replace("/catalogue/categories/nouveau");
+      setFeedback("Categorie supprimee.");
+    } catch (submissionError) {
+      setError(submissionError.message);
+    }
+  };
+
+  const handleBackToCatalogue = () => {
+    router.push("/catalogue");
   };
 
   return (
@@ -87,176 +97,175 @@ export default function NewCategoryPage() {
       <div className="page-stack">
         <div className="page-header">
           <div>
-            <p className="eyebrow">Creation categorie</p>
-            <h3>Une configuration simple, lisible et deja raccordee au catalogue.</h3>
-            <p>On garde la richesse metier utile, mais sans effet usine a gaz ni surcharge visuelle.</p>
+            <p className="eyebrow">Catalogue / Categorie</p>
+            <h3>{editingSlug ? "Modifier une categorie" : "Ajouter une categorie"}</h3>
+            <p>Le systeme reste volontairement simple: une categorie libre, modifiable, supprimable et jamais obligatoire pour vos produits.</p>
           </div>
           <div className="page-header-actions">
-            <Link href="/catalogue" className="button ghost">
+            <button type="button" className="button ghost" onClick={handleBackToCatalogue}>
               Retour au catalogue
-            </Link>
+            </button>
           </div>
         </div>
 
+        {error ? <p className="feedback error">{error}</p> : null}
         {feedback ? <p className="feedback success">{feedback}</p> : null}
 
-        <section className="split-layout split-2-1">
+        <section className="catalog-editor-layout">
           <Panel
-            title="Modeles Lokify"
-            description="Des bases propres pour gagner du temps sur les categories recurrentes."
-            className="sticky-panel"
+            title="Vos categories"
+            description="Aucune categorie systeme n'est injectee. Cette liste correspond uniquement a votre configuration."
+            className="catalog-editor-sidebar"
           >
-            <div className="card-list">
-              {categoryBlueprints.map((blueprint) => (
-                <article key={blueprint.id} className="category-card">
-                  <header>
-                    <div>
-                      <strong>{blueprint.name}</strong>
-                      <p className="table-subcopy">{blueprint.description}</p>
+            <div className="card-list catalog-mini-list">
+              {workspace.catalogCategories.map((category) => (
+                <article key={category.slug} className="detail-card catalog-inline-card">
+                  <div className="row-actions">
+                    <div className="stack">
+                      <strong>{category.name}</strong>
+                      <span className="muted-text">{category.description || "Categorie libre"}</span>
                     </div>
-                    <StatusPill tone={blueprint.status === "active" ? "success" : "warning"}>
-                      {blueprint.status === "active" ? "Actif" : "Draft"}
+                    <StatusPill tone={category.status === "active" ? "success" : "neutral"}>
+                      {category.status === "active" ? "Active" : "Brouillon"}
                     </StatusPill>
-                  </header>
-                  <div className="tag-list">
-                    {blueprint.filters.map((filter) => (
-                      <span key={filter} className="tag-chip">
-                        {filter}
-                      </span>
-                    ))}
                   </div>
-                  <button type="button" className="button secondary" onClick={() => applyBlueprint(blueprint.id)}>
-                    Utiliser ce modele
-                  </button>
+                  <Link
+                    href={`/catalogue/categories/nouveau?category=${category.slug}`}
+                    className="button ghost"
+                  >
+                    Modifier
+                  </Link>
                 </article>
               ))}
+              {!workspace.catalogCategories.length ? (
+                <div className="empty-state">
+                  <strong>Aucune categorie</strong>
+                  <span>Le catalogue reste vide tant que vous ne creez rien.</span>
+                </div>
+              ) : null}
             </div>
           </Panel>
 
-          <Panel title="Configuration" description="Chaque bloc reste court, aere et simple a comprendre.">
-            <form className="form-grid" onSubmit={handleSubmit}>
+          <Panel
+            title={editingSlug ? form.name || "Categorie" : "Nouvelle categorie"}
+            description="Nom obligatoire. Icone et image sont deja prevues pour de futures evolutions, sans rigidifier votre structure."
+          >
+            <form className="form-grid catalog-compact-form" onSubmit={handleSubmit}>
               <div className="editor-section-grid two-columns">
-                <div className="section-block">
-                  <div className="section-block-header">
-                    <div>
-                      <h4>General</h4>
-                      <p>Le type et le nom servent de base a l'organisation du catalogue.</p>
-                    </div>
-                  </div>
-
-                  <div className="field">
-                    <label htmlFor="category-type">Categorie de produit</label>
-                    <input id="category-type" value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} />
-                  </div>
-
-                  <div className="field">
-                    <label htmlFor="category-name">Nom de la categorie</label>
-                    <input id="category-name" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ex. Animation photo premium" required />
-                  </div>
+                <div className="field">
+                  <label htmlFor="category-name">Nom</label>
+                  <input
+                    id="category-name"
+                    value={form.name}
+                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="Ex. Animation photo"
+                    required
+                  />
                 </div>
-
-                <div className="section-block">
-                  <div className="section-block-header">
-                    <div>
-                      <h4>Etat des lieux</h4>
-                      <p>Activation simple pour preparer les controles terrain quand c'est utile.</p>
-                    </div>
-                  </div>
-
-                  <div className="row-actions">
-                    <button type="button" className={`button ${form.inspectionEnabled ? "secondary" : "ghost"}`} onClick={() => setForm((current) => ({ ...current, inspectionEnabled: true }))}>
-                      Active
-                    </button>
-                    <button type="button" className={`button ${!form.inspectionEnabled ? "secondary" : "ghost"}`} onClick={() => setForm((current) => ({ ...current, inspectionEnabled: false }))}>
-                      Desactive
-                    </button>
-                  </div>
+                <div className="field">
+                  <label htmlFor="category-icon">Icone (optionnel)</label>
+                  <input
+                    id="category-icon"
+                    value={form.icon_name}
+                    onChange={(event) => setForm((current) => ({ ...current, icon_name: event.target.value }))}
+                    placeholder="Ex. camera, sparkles, truck"
+                  />
                 </div>
               </div>
 
-              <div className="section-block">
-                <div className="section-block-header">
-                  <div>
-                    <h4>Filtres personnalises</h4>
-                    <p>Ils servent de lecture rapide dans la fiche produit sans densifier l'interface.</p>
-                  </div>
-                </div>
-
-                <div className="stack">
-                  {form.filters.map((filter, index) => (
-                    <input
-                      key={`filter-${index}`}
-                      value={filter}
-                      onChange={(event) => updateFilter(index, event.target.value)}
-                      placeholder="Ex. branding"
-                    />
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  className="button ghost"
-                  onClick={() => setForm((current) => ({ ...current, filters: [...current.filters, ""] }))}
-                >
-                  + Filtre
-                </button>
+              <div className="field">
+                <label htmlFor="category-description">Description</label>
+                <textarea
+                  id="category-description"
+                  value={form.description}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Petit texte interne pour mieux organiser votre catalogue."
+                />
               </div>
 
-              <div className="section-block">
-                <div className="section-block-header">
-                  <div>
-                    <h4>Gestion des durees</h4>
-                    <p>Des reperes simples pour les durees standard ou les fourchettes plus souples.</p>
-                  </div>
-                </div>
+              <div className="field">
+                <label htmlFor="category-image">Image (optionnel)</label>
+                <input
+                  id="category-image"
+                  value={form.image_url}
+                  onChange={(event) => setForm((current) => ({ ...current, image_url: event.target.value }))}
+                  placeholder="https://..."
+                />
+              </div>
 
-                <div className="stack">
-                  {form.durations.map((duration, index) => (
-                    <div key={`duration-${index}`} className="form-grid two-columns">
-                      <input value={duration.label} onChange={(event) => updateListValue("durations", index, "label", event.target.value)} placeholder="Label" />
-                      <input type="number" min="1" value={duration.hours} onChange={(event) => updateListValue("durations", index, "hours", event.target.value)} placeholder="Heures" />
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  className="button ghost"
-                  onClick={() => setForm((current) => ({ ...current, durations: [...current.durations, { label: "", hours: 8 }] }))}
-                >
-                  + Duree
-                </button>
-
-                <div className="stack">
-                  {form.ranges.map((range, index) => (
-                    <div key={`range-${index}`} className="form-grid two-columns">
-                      <input value={range.label} onChange={(event) => updateListValue("ranges", index, "label", event.target.value)} placeholder="Nom de la fourchette" />
-                      <div className="form-grid two-columns">
-                        <input type="number" min="1" value={range.minHours} onChange={(event) => updateListValue("ranges", index, "minHours", event.target.value)} placeholder="Min" />
-                        <input type="number" min="1" value={range.maxHours} onChange={(event) => updateListValue("ranges", index, "maxHours", event.target.value)} placeholder="Max" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  className="button ghost"
-                  onClick={() => setForm((current) => ({ ...current, ranges: [...current.ranges, { label: "", minHours: 12, maxHours: 24 }] }))}
-                >
-                  + Fourchette
-                </button>
+              <div className="detail-card">
+                <strong>Comportement</strong>
+                <span className="muted-text">
+                  Les produits peuvent rester sans categorie. Si vous supprimez une categorie, les produits lies sont simplement desaffectes.
+                </span>
               </div>
 
               <div className="row-actions form-actions-bar">
-                <button type="submit" className="button primary">
-                  Sauvegarder la categorie
+                <button type="submit" className="button primary" disabled={workspace.mutating}>
+                  {workspace.mutating ? "Enregistrement..." : editingSlug ? "Sauvegarder" : "Creer la categorie"}
                 </button>
+                {editingSlug ? (
+                  <button type="button" className="button ghost" onClick={handleDelete} disabled={workspace.mutating}>
+                    Supprimer
+                  </button>
+                ) : null}
               </div>
             </form>
           </Panel>
+
+          {editingSlug ? (
+            <Panel
+              title="Produits de la categorie"
+              description="Cette vue vous permet de verifier rapidement les produits deja relies a la categorie."
+            >
+              {categoryProducts.length ? (
+                <div className="card-list catalog-mini-list">
+                  {categoryProducts.map((product) => (
+                    <article key={product.id} className="detail-card catalog-inline-card">
+                      <div className="stack">
+                        <strong>{product.public_name || product.name}</strong>
+                        <span className="muted-text">
+                          {product.public_description || "Aucune description courte"}
+                        </span>
+                      </div>
+                      <div className="row-actions">
+                        <StatusPill tone={product.online_visible ? "success" : "neutral"}>
+                          {product.online_visible ? "Visible en ligne" : "Masque"}
+                        </StatusPill>
+                        <Link
+                          href={`/catalogue/produits/nouveau?product=${product.id}&mode=edit`}
+                          className="button subtle"
+                        >
+                          Modifier
+                        </Link>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <strong>Aucun produit n&apos;est encore associe a cette categorie</strong>
+                  <span>Ajoutez un produit puis rattachez-le directement a cette categorie.</span>
+                  <Link
+                    href={`/catalogue/produits/nouveau?category=${editingSlug}`}
+                    className="button primary"
+                  >
+                    Ajouter un produit
+                  </Link>
+                </div>
+              )}
+            </Panel>
+          ) : null}
         </section>
       </div>
     </AppShell>
+  );
+}
+
+export default function CategoryEditorPage() {
+  return (
+    <Suspense fallback={null}>
+      <CategoryEditorPageContent />
+    </Suspense>
   );
 }
