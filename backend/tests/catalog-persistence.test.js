@@ -1,15 +1,28 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import crypto from "crypto";
+import { afterEach, beforeEach, test } from "node:test";
+
+import sharp from "sharp";
 
 import { query } from "../src/config/db.js";
 import {
   appendItemProfilePhoto,
+  createCatalogProduct,
   listCatalogCategories,
   listCatalogTaxRates,
   listItemProfiles,
+  updateCatalogProduct,
   upsertCatalogCategory,
   upsertItemProfile,
 } from "../src/services/catalog.service.js";
+import {
+  resetCloudflareR2ServiceOverrideForTests,
+  setCloudflareR2ServiceOverrideForTests,
+} from "../src/services/cloudflare-r2.service.js";
+
+const uploadedObjectKeys = [];
+const deletedObjectKeys = [];
+let failUploads = false;
 
 const getDemoUserId = async () => {
   const { rows } = await query(
@@ -51,6 +64,69 @@ const buildPngDataUrl = (width, height, size = 12 * 1024) => {
   return `data:image/png;base64,${buffer.toString("base64")}`;
 };
 
+const buildRealJpegDataUrl = async (width, height) => {
+  const rawBuffer = crypto.randomBytes(width * height * 3);
+  const jpegBuffer = await sharp(rawBuffer, {
+    raw: {
+      width,
+      height,
+      channels: 3,
+    },
+  })
+    .jpeg({ quality: 82 })
+    .toBuffer();
+
+  return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+};
+
+const buildManagedPhotoUrl = (objectKey) =>
+  `https://cdn.lokify.test/${String(objectKey || "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+
+const extractManagedObjectKey = (photoUrl) => {
+  const prefix = "https://cdn.lokify.test/";
+  if (!String(photoUrl || "").startsWith(prefix)) {
+    return null;
+  }
+
+  return decodeURIComponent(String(photoUrl).slice(prefix.length));
+};
+
+beforeEach(() => {
+  uploadedObjectKeys.length = 0;
+  deletedObjectKeys.length = 0;
+  failUploads = false;
+
+  setCloudflareR2ServiceOverrideForTests({
+    buildPublicUrl: buildManagedPhotoUrl,
+    extractObjectKeyFromPublicUrl: extractManagedObjectKey,
+    isManagedPublicUrl: (photoUrl) => String(photoUrl || "").startsWith("https://cdn.lokify.test/"),
+    uploadObject: async ({ objectKey }) => {
+      if (failUploads) {
+        const error = new Error("L'image n'a pas pu etre envoyee vers le stockage distant.");
+        error.code = "catalog_image_upload_failed";
+        error.statusCode = 502;
+        throw error;
+      }
+
+      uploadedObjectKeys.push(objectKey);
+      return {
+        objectKey,
+        publicUrl: buildManagedPhotoUrl(objectKey),
+      };
+    },
+    deleteObject: async (objectKey) => {
+      deletedObjectKeys.push(objectKey);
+    },
+  });
+});
+
+afterEach(() => {
+  resetCloudflareR2ServiceOverrideForTests();
+});
+
 test("catalog categories are persisted and upserted by slug", async () => {
   const userId = await getDemoUserId();
   const createdCategory = await upsertCatalogCategory(userId, {
@@ -83,7 +159,9 @@ test("catalog categories are persisted and upserted by slug", async () => {
 test("item profiles are persisted independently from base items", async () => {
   const userId = await getDemoUserId();
   const itemId = await getFirstItemId(userId);
-  const relatedProductIds = (await getFirstItemIds(userId, 3)).filter((id) => id !== itemId).slice(0, 2);
+  const relatedProductIds = (await getFirstItemIds(userId, 3))
+    .filter((id) => id !== itemId)
+    .slice(0, 2);
 
   const itemProfile = await upsertItemProfile(userId, itemId, {
     category_name: "Animation photo",
@@ -126,22 +204,256 @@ test("catalog tax rates expose the standard French VAT set with 20% as default",
   assert.equal(taxRatesByKey.get("20.00")?.is_default, true);
 });
 
-test("catalog product images are appended with validation and deduplication", async () => {
+test("catalog product creation without image keeps photos empty", async () => {
+  const userId = await getDemoUserId();
+  const result = await createCatalogProduct(userId, {
+    item: {
+      name: "Ecran LED mobile",
+      category: "Affichage",
+      stock: 1,
+      status: "available",
+      price: 490,
+      deposit: 900,
+    },
+    profile: {
+      public_name: "Ecran LED mobile",
+      public_description: "Affichage mobile sans image.",
+      category_slug: "affichage",
+      category_name: "Affichage",
+      photos: [],
+    },
+    photo_uploads: [],
+  });
+
+  assert.equal(result.photoUploadFailures.length, 0);
+  assert.deepEqual(result.itemProfile.photos, []);
+});
+
+test("catalog product creation with image stores only a public R2 URL in base", async () => {
+  const userId = await getDemoUserId();
+  const imageDataUrl = await buildRealJpegDataUrl(1200, 900);
+  const result = await createCatalogProduct(userId, {
+    item: {
+      name: "Borne selfie studio",
+      category: "Animation photo",
+      stock: 2,
+      status: "available",
+      price: 320,
+      deposit: 500,
+    },
+    profile: {
+      public_name: "Borne selfie studio",
+      public_description: "Pack catalogue avec photo hebergee.",
+      category_slug: "animation-photo",
+      category_name: "Animation photo",
+      photos: [],
+    },
+    photo_uploads: [
+      {
+        data_url: imageDataUrl,
+        file_name: "borne-selfie.jpg",
+      },
+    ],
+  });
+
+  assert.equal(result.photoUploadFailures.length, 0);
+  assert.equal(result.itemProfile.photos.length, 1);
+  assert.match(result.itemProfile.photos[0], /^https:\/\/cdn\.lokify\.test\/products\//);
+  assert.equal(uploadedObjectKeys.length, 1);
+
+  const { rows } = await query("SELECT photos_json FROM item_profiles WHERE item_id = $1", [
+    result.item.id,
+  ]);
+  const persistedPhotos = JSON.parse(rows[0].photos_json);
+
+  assert.equal(persistedPhotos.length, 1);
+  assert.equal(persistedPhotos[0].startsWith("data:image/"), false);
+  assert.match(persistedPhotos[0], /^https:\/\/cdn\.lokify\.test\/products\//);
+});
+
+test("catalog product update replaces and deletes unused managed images", async () => {
+  const userId = await getDemoUserId();
+  const firstImage = await buildRealJpegDataUrl(1400, 1000);
+  const createdProduct = await createCatalogProduct(userId, {
+    item: {
+      name: "Totem selfie",
+      category: "Animation photo",
+      stock: 1,
+      status: "available",
+      price: 280,
+      deposit: 400,
+    },
+    profile: {
+      public_name: "Totem selfie",
+      public_description: "Version initiale.",
+      category_slug: "animation-photo",
+      category_name: "Animation photo",
+      photos: [],
+    },
+    photo_uploads: [
+      {
+        data_url: firstImage,
+        file_name: "totem-selfie.jpg",
+      },
+    ],
+  });
+  const previousPhotoUrl = createdProduct.itemProfile.photos[0];
+  const replacementImage = await buildRealJpegDataUrl(1280, 960);
+
+  const updatedProduct = await updateCatalogProduct(userId, createdProduct.item.id, {
+    item: {
+      name: "Totem selfie",
+      category: "Animation photo",
+      stock: 1,
+      status: "available",
+      price: 280,
+      deposit: 400,
+    },
+    profile: {
+      public_name: "Totem selfie",
+      public_description: "Version remplacee.",
+      category_slug: "animation-photo",
+      category_name: "Animation photo",
+      photos: [],
+    },
+    photo_uploads: [
+      {
+        data_url: replacementImage,
+        file_name: "totem-selfie-v2.jpg",
+      },
+    ],
+  });
+
+  assert.equal(updatedProduct.photoUploadFailures.length, 0);
+  assert.equal(updatedProduct.itemProfile.photos.length, 1);
+  assert.notEqual(updatedProduct.itemProfile.photos[0], previousPhotoUrl);
+  assert.deepEqual(deletedObjectKeys, [extractManagedObjectKey(previousPhotoUrl)]);
+});
+
+test("catalog product update deletes a removed managed image when it is no longer referenced", async () => {
+  const userId = await getDemoUserId();
+  const firstImage = await buildRealJpegDataUrl(1200, 900);
+  const createdProduct = await createCatalogProduct(userId, {
+    item: {
+      name: "Fond photo premium",
+      category: "Decoration",
+      stock: 1,
+      status: "available",
+      price: 210,
+      deposit: 300,
+    },
+    profile: {
+      public_name: "Fond photo premium",
+      public_description: "Produit avec image a supprimer.",
+      category_slug: "decoration",
+      category_name: "Decoration",
+      photos: [],
+    },
+    photo_uploads: [
+      {
+        data_url: firstImage,
+        file_name: "fond-photo.jpg",
+      },
+    ],
+  });
+  const previousPhotoUrl = createdProduct.itemProfile.photos[0];
+
+  const updatedProduct = await updateCatalogProduct(userId, createdProduct.item.id, {
+    item: {
+      name: "Fond photo premium",
+      category: "Decoration",
+      stock: 1,
+      status: "available",
+      price: 210,
+      deposit: 300,
+    },
+    profile: {
+      public_name: "Fond photo premium",
+      public_description: "Produit sans image.",
+      category_slug: "decoration",
+      category_name: "Decoration",
+      photos: [],
+    },
+    photo_uploads: [],
+  });
+
+  assert.equal(updatedProduct.photoUploadFailures.length, 0);
+  assert.deepEqual(updatedProduct.itemProfile.photos, []);
+  assert.deepEqual(deletedObjectKeys, [extractManagedObjectKey(previousPhotoUrl)]);
+});
+
+test("catalog product update keeps existing images when replacement upload fails", async () => {
+  const userId = await getDemoUserId();
+  const firstImage = await buildRealJpegDataUrl(1200, 900);
+  const createdProduct = await createCatalogProduct(userId, {
+    item: {
+      name: "Mur de fleurs",
+      category: "Decoration",
+      stock: 1,
+      status: "available",
+      price: 600,
+      deposit: 800,
+    },
+    profile: {
+      public_name: "Mur de fleurs",
+      public_description: "Version avec image initiale.",
+      category_slug: "decoration",
+      category_name: "Decoration",
+      photos: [],
+    },
+    photo_uploads: [
+      {
+        data_url: firstImage,
+        file_name: "mur-fleurs.jpg",
+      },
+    ],
+  });
+  const originalPhotoUrl = createdProduct.itemProfile.photos[0];
+
+  failUploads = true;
+
+  const updatedProduct = await updateCatalogProduct(userId, createdProduct.item.id, {
+    item: {
+      name: "Mur de fleurs",
+      category: "Decoration",
+      stock: 1,
+      status: "available",
+      price: 600,
+      deposit: 800,
+    },
+    profile: {
+      public_name: "Mur de fleurs",
+      public_description: "Tentative de remplacement.",
+      category_slug: "decoration",
+      category_name: "Decoration",
+      photos: [],
+    },
+    photo_uploads: [
+      {
+        data_url: await buildRealJpegDataUrl(1300, 950),
+        file_name: "mur-fleurs-v2.jpg",
+      },
+    ],
+  });
+
+  assert.equal(updatedProduct.photoUploadFailures.length, 1);
+  assert.equal(updatedProduct.keptExistingPhotos, true);
+  assert.deepEqual(updatedProduct.itemProfile.photos, [originalPhotoUrl]);
+  assert.deepEqual(deletedObjectKeys, []);
+});
+
+test("catalog product images are appended through R2-backed storage", async () => {
   const userId = await getDemoUserId();
   const itemId = await getFirstItemId(userId);
-  const photoDataUrl = buildPngDataUrl(1200, 900);
+  const photoDataUrl = await buildRealJpegDataUrl(1200, 900);
 
   const profileWithPhoto = await appendItemProfilePhoto(userId, itemId, {
     data_url: photoDataUrl,
+    file_name: "catalog-photo.jpg",
   });
 
   assert.equal(profileWithPhoto.photos.length >= 1, true);
-
-  const duplicatedProfile = await appendItemProfilePhoto(userId, itemId, {
-    data_url: photoDataUrl,
-  });
-
-  assert.equal(duplicatedProfile.photos.filter((photo) => photo === photoDataUrl).length, 1);
+  assert.match(profileWithPhoto.photos[0], /^https:\/\/cdn\.lokify\.test\/products\//);
 });
 
 test("catalog product images reject files smaller than the minimum dimensions", async () => {
@@ -168,4 +480,21 @@ test("catalog product images reject oversized payloads", async () => {
       }),
     /L'image depasse la taille maximale autorisee de 2 Mo\./
   );
+});
+
+test("legacy data URL photos remain readable alongside new URL-based photos", async () => {
+  const userId = await getDemoUserId();
+  const itemId = await getFirstItemId(userId);
+  const legacyPhotoDataUrl = buildPngDataUrl(1200, 900);
+
+  await upsertItemProfile(userId, itemId, {
+    public_name: "Compatibilite legacy",
+    photos: [legacyPhotoDataUrl],
+  });
+
+  const profiles = await listItemProfiles(userId);
+  const updatedProfile = profiles.find((profile) => profile.item_id === itemId);
+
+  assert.ok(updatedProfile);
+  assert.deepEqual(updatedProfile.photos, [legacyPhotoDataUrl]);
 });

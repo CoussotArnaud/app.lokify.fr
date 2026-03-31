@@ -1,10 +1,15 @@
 import crypto from "crypto";
 
 import { query } from "../config/db.js";
+import {
+  deleteCatalogManagedPhoto,
+  isManagedCatalogPhotoUrl,
+  uploadCatalogProductPhoto,
+} from "./catalog-photo-storage.service.js";
+import { createItem, updateItem } from "./items.service.js";
 import HttpError from "../utils/http-error.js";
 import {
   MAX_CATALOG_ITEM_PHOTOS,
-  validateCatalogImagePayload,
 } from "../utils/catalog-image.js";
 
 const validCatalogModes = new Set(["location", "sale", "resale"]);
@@ -62,6 +67,30 @@ const normalizeStringList = (value) => {
   return value
     .map((entry) => normalizeWhitespace(entry))
     .filter(Boolean);
+};
+
+const normalizePhotoUrls = (value) => {
+  const seen = new Set();
+  const photos = [];
+
+  normalizeStringList(value).forEach((photoUrl) => {
+    if (seen.has(photoUrl)) {
+      return;
+    }
+
+    seen.add(photoUrl);
+    photos.push(photoUrl);
+  });
+
+  return photos;
+};
+
+const normalizePhotoUploadPayloads = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry) => entry && typeof entry === "object");
 };
 
 const normalizeObjectList = (value, builder) => {
@@ -523,6 +552,78 @@ const buildDuplicatedLabel = (value) => {
   return /\(copie\)$/i.test(normalized) ? normalized : `${normalized} (copie)`;
 };
 
+const normalizeCatalogProductMutationPayload = (payload = {}) => {
+  const normalizedPayload = payload && typeof payload === "object" ? payload : {};
+
+  return {
+    item:
+      normalizedPayload.item && typeof normalizedPayload.item === "object"
+        ? normalizedPayload.item
+        : {},
+    profile:
+      normalizedPayload.profile && typeof normalizedPayload.profile === "object"
+        ? normalizedPayload.profile
+        : {},
+    photo_uploads: normalizePhotoUploadPayloads(
+      normalizedPayload.photo_uploads ?? normalizedPayload.photoUploads
+    ),
+  };
+};
+
+const stripPhotosFromProfilePayload = (payload = {}) => {
+  const nextPayload = { ...(payload || {}) };
+  delete nextPayload.photos;
+  return nextPayload;
+};
+
+const listReferencedPhotosByOtherProfiles = async (userId, itemId) => {
+  const { rows } = await query(
+    `
+      SELECT photos_json
+      FROM item_profiles
+      WHERE user_id = $1
+        AND item_id <> $2
+    `,
+    [userId, itemId]
+  );
+
+  const referencedPhotos = new Set();
+  rows.forEach((row) => {
+    parseJsonList(row.photos_json).forEach((photoUrl) => {
+      if (photoUrl) {
+        referencedPhotos.add(photoUrl);
+      }
+    });
+  });
+
+  return referencedPhotos;
+};
+
+const deleteUnusedManagedCatalogPhotos = async (userId, itemId, photoUrls = []) => {
+  const managedPhotoUrls = normalizePhotoUrls(photoUrls).filter(isManagedCatalogPhotoUrl);
+  if (!managedPhotoUrls.length) {
+    return;
+  }
+
+  const referencedPhotos = await listReferencedPhotosByOtherProfiles(userId, itemId);
+
+  for (const photoUrl of managedPhotoUrls) {
+    if (referencedPhotos.has(photoUrl)) {
+      continue;
+    }
+
+    try {
+      await deleteCatalogManagedPhoto(photoUrl);
+    } catch (error) {
+      console.error("Unable to delete unused catalog photo from R2.", {
+        itemId,
+        photoUrl,
+        error,
+      });
+    }
+  }
+};
+
 export const listCatalogCategories = async (userId) => {
   const { rows } = await query(
     `
@@ -791,6 +892,7 @@ export const deleteCatalogTaxRate = async (userId, taxRateId) => {
 };
 
 const normalizeItemProfilePayload = (payload = {}, item = null) => {
+  const hasExplicitPhotos = Object.prototype.hasOwnProperty.call(payload, "photos");
   const assignmentOrder = String(payload.assignment_order ?? payload.assignmentOrder ?? "auto")
     .trim()
     .toLowerCase();
@@ -856,7 +958,8 @@ const normalizeItemProfilePayload = (payload = {}, item = null) => {
     long_description: normalizeOptionalText(
       payload.long_description ?? payload.longDescription
     ),
-    photos: normalizeStringList(payload.photos),
+    photos: hasExplicitPhotos ? normalizePhotoUrls(payload.photos) : null,
+    has_photos: hasExplicitPhotos,
     related_enabled: Boolean(payload.related_enabled ?? payload.relatedEnabled),
     related_product_ids: normalizeStringList(
       payload.related_product_ids ?? payload.relatedProductIds
@@ -901,21 +1004,15 @@ const getItemProfileByItemId = async (userId, itemId) => {
 
 export const upsertItemProfile = async (userId, itemId, payload = {}) => {
   const item = await ensureItemOwnedByUser(userId, itemId);
+  const currentProfile = await getItemProfileByItemId(userId, itemId);
   const profile = normalizeItemProfilePayload(payload, item);
   const resolvedTaxRate = await resolveTaxRateForProfile(userId, profile);
   const ownedRelatedItems = await listItemsByIds(userId, profile.related_product_ids);
+  const nextPhotos = profile.has_photos
+    ? profile.photos
+    : normalizePhotoUrls(currentProfile?.photos || []);
 
-  const { rows: existingRows } = await query(
-    `
-      SELECT item_id
-      FROM item_profiles
-      WHERE item_id = $1 AND user_id = $2
-      LIMIT 1
-    `,
-    [itemId, userId]
-  );
-
-  if (existingRows[0]) {
+  if (currentProfile) {
     const { rows } = await query(
       `
         UPDATE item_profiles
@@ -979,7 +1076,7 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
         profile.public_name,
         profile.public_description,
         profile.long_description,
-        JSON.stringify(profile.photos),
+        JSON.stringify(nextPhotos),
         profile.related_enabled,
         JSON.stringify(ownedRelatedItems.map((relatedItem) => relatedItem.id)),
         profile.related_sort_note,
@@ -1063,7 +1160,7 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
       profile.public_name,
       profile.public_description,
       profile.long_description,
-      JSON.stringify(profile.photos),
+      JSON.stringify(nextPhotos),
       profile.related_enabled,
       JSON.stringify(ownedRelatedItems.map((relatedItem) => relatedItem.id)),
       profile.related_sort_note,
@@ -1077,17 +1174,19 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
   return serializeItemProfile(rows[0]);
 };
 
-export const appendItemProfilePhoto = async (userId, itemId, payload = {}) => {
+const syncItemProfilePhotos = async (
+  userId,
+  itemId,
+  { retainedPhotos, photoUploads = [] } = {}
+) => {
   const item = await ensureItemOwnedByUser(userId, itemId);
-  const validatedImage = validateCatalogImagePayload(payload);
   const currentProfile = await getItemProfileByItemId(userId, itemId);
-  const currentPhotos = Array.isArray(currentProfile?.photos) ? currentProfile.photos : [];
+  const currentPhotos = normalizePhotoUrls(currentProfile?.photos || []);
+  const nextRetainedPhotos =
+    retainedPhotos === undefined ? currentPhotos : normalizePhotoUrls(retainedPhotos);
+  const normalizedPhotoUploads = normalizePhotoUploadPayloads(photoUploads);
 
-  if (currentPhotos.includes(validatedImage.data_url)) {
-    return currentProfile;
-  }
-
-  if (currentPhotos.length >= MAX_CATALOG_ITEM_PHOTOS) {
+  if (nextRetainedPhotos.length + normalizedPhotoUploads.length > MAX_CATALOG_ITEM_PHOTOS) {
     throw new HttpError(
       400,
       `Vous ne pouvez pas ajouter plus de ${MAX_CATALOG_ITEM_PHOTOS} images sur ce produit.`,
@@ -1095,11 +1194,107 @@ export const appendItemProfilePhoto = async (userId, itemId, payload = {}) => {
     );
   }
 
-  return upsertItemProfile(userId, itemId, {
+  const uploadedPhotos = [];
+  const uploadFailures = [];
+
+  for (const photoUpload of normalizedPhotoUploads) {
+    try {
+      const uploadedPhoto = await uploadCatalogProductPhoto({
+        itemId,
+        payload: photoUpload,
+      });
+
+      uploadedPhotos.push(uploadedPhoto.publicUrl);
+    } catch (error) {
+      uploadFailures.push({
+        statusCode: error.statusCode || 502,
+        code: error.code || "catalog_image_upload_failed",
+        message: error.message || "L'image n'a pas pu etre envoyee.",
+      });
+    }
+  }
+
+  const hasUploadFailure = normalizedPhotoUploads.length > 0 && uploadFailures.length > 0;
+  const hadRequestedRemovals = currentPhotos.some(
+    (photoUrl) => !nextRetainedPhotos.includes(photoUrl)
+  );
+  const finalPhotos = hasUploadFailure
+    ? normalizePhotoUrls([...currentPhotos, ...uploadedPhotos])
+    : normalizePhotoUrls([...nextRetainedPhotos, ...uploadedPhotos]);
+  const removedPhotos = hasUploadFailure
+    ? []
+    : currentPhotos.filter((photoUrl) => !finalPhotos.includes(photoUrl));
+  const nextProfile = await upsertItemProfile(userId, itemId, {
     ...(currentProfile || {}),
     public_name: currentProfile?.public_name || item.name,
-    photos: [...currentPhotos, validatedImage.data_url],
+    photos: finalPhotos,
   });
+
+  await deleteUnusedManagedCatalogPhotos(userId, itemId, removedPhotos);
+
+  return {
+    itemProfile: nextProfile,
+    uploadFailures,
+    keptExistingPhotos: hasUploadFailure && hadRequestedRemovals,
+  };
+};
+
+export const createCatalogProduct = async (userId, payload = {}) => {
+  const normalizedPayload = normalizeCatalogProductMutationPayload(payload);
+  const item = await createItem(userId, normalizedPayload.item);
+  const itemProfile = await upsertItemProfile(
+    userId,
+    item.id,
+    stripPhotosFromProfilePayload(normalizedPayload.profile)
+  );
+  const photoSyncResult = await syncItemProfilePhotos(userId, item.id, {
+    retainedPhotos: normalizedPayload.profile.photos,
+    photoUploads: normalizedPayload.photo_uploads,
+  });
+
+  return {
+    item,
+    itemProfile: photoSyncResult.itemProfile || itemProfile,
+    photoUploadFailures: photoSyncResult.uploadFailures,
+    keptExistingPhotos: photoSyncResult.keptExistingPhotos,
+  };
+};
+
+export const updateCatalogProduct = async (userId, itemId, payload = {}) => {
+  const normalizedPayload = normalizeCatalogProductMutationPayload(payload);
+  const item = await updateItem(userId, itemId, normalizedPayload.item);
+  const itemProfile = await upsertItemProfile(
+    userId,
+    itemId,
+    stripPhotosFromProfilePayload(normalizedPayload.profile)
+  );
+  const photoSyncResult = await syncItemProfilePhotos(userId, itemId, {
+    retainedPhotos: normalizedPayload.profile.photos,
+    photoUploads: normalizedPayload.photo_uploads,
+  });
+
+  return {
+    item,
+    itemProfile: photoSyncResult.itemProfile || itemProfile,
+    photoUploadFailures: photoSyncResult.uploadFailures,
+    keptExistingPhotos: photoSyncResult.keptExistingPhotos,
+  };
+};
+
+export const appendItemProfilePhoto = async (userId, itemId, payload = {}) => {
+  const currentProfile = await getItemProfileByItemId(userId, itemId);
+  const photoSyncResult = await syncItemProfilePhotos(userId, itemId, {
+    retainedPhotos: currentProfile?.photos || [],
+    photoUploads: [payload],
+  });
+
+  if (photoSyncResult.uploadFailures.length) {
+    throw new HttpError(photoSyncResult.uploadFailures[0].statusCode || 502, photoSyncResult.uploadFailures[0].message, {
+      code: photoSyncResult.uploadFailures[0].code,
+    });
+  }
+
+  return photoSyncResult.itemProfile;
 };
 
 const getCatalogPackById = async (userId, packId) => {

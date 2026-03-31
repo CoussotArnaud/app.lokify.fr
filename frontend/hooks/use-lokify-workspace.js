@@ -887,6 +887,13 @@ export default function useLokifyWorkspace() {
           body: payload,
         })
       ),
+    saveCatalogProduct: (payload, itemId = null) =>
+      runMutation(() =>
+        apiRequest(itemId ? `/catalog/products/${itemId}` : "/catalog/products", {
+          method: itemId ? "PUT" : "POST",
+          body: payload,
+        })
+      ),
     uploadCatalogItemPhoto: (itemId, payload) =>
       apiRequest(`/catalog/item-profiles/${itemId}/photos`, {
         method: "POST",

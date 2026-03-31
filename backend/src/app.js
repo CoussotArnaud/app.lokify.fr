@@ -64,7 +64,7 @@ app.use((_req, res, next) => {
 });
 app.use("/api/lokify-billing/webhooks", lokifyBillingWebhookRoutes);
 app.use("/api/internal", internalRoutes);
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "30mb" }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });

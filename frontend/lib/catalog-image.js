@@ -4,33 +4,12 @@ export const MIN_CATALOG_IMAGE_SIZE_BYTES = 10 * 1024;
 export const MIN_CATALOG_IMAGE_WIDTH = 600;
 export const MIN_CATALOG_IMAGE_HEIGHT = 600;
 
-const MAX_OUTPUT_DIMENSION = 1600;
-const TARGET_OUTPUT_SIZE_BYTES = 850 * 1024;
-const OUTPUT_MIME_TYPE = "image/webp";
-const OUTPUT_QUALITY_STEPS = [0.82, 0.76, 0.7, 0.64];
-const SCALE_STEPS = [1, 0.92, 0.84, 0.76, 0.68];
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const buildCatalogImageError = (message, code) => {
   const error = new Error(message);
   error.code = code;
   return error;
-};
-
-const decodeBase64Size = (dataUrl) => {
-  const [, base64Payload = ""] = String(dataUrl || "").split(",", 2);
-  const normalizedPayload = base64Payload.replace(/\s+/g, "");
-  if (!normalizedPayload) {
-    return 0;
-  }
-
-  const paddingLength = normalizedPayload.endsWith("==")
-    ? 2
-    : normalizedPayload.endsWith("=")
-      ? 1
-      : 0;
-
-  return Math.max(0, Math.floor((normalizedPayload.length * 3) / 4) - paddingLength);
 };
 
 const loadImage = (src) =>
@@ -47,22 +26,19 @@ const loadImage = (src) =>
     image.src = src;
   });
 
-const createCanvas = (image, width, height) => {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext("2d");
-  if (!context) {
-    throw buildCatalogImageError(
-      "Le navigateur ne permet pas de preparer cette image.",
-      "catalog_image_processing_failed"
-    );
-  }
-
-  context.drawImage(image, 0, 0, width, height);
-  return canvas;
-};
+const readFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () =>
+      reject(
+        buildCatalogImageError(
+          "Le fichier image n'a pas pu etre lu.",
+          "catalog_image_invalid"
+        )
+      );
+    reader.readAsDataURL(file);
+  });
 
 export const formatCatalogImageSize = (bytes) => {
   if (bytes >= 1024 * 1024) {
@@ -115,59 +91,17 @@ export const prepareCatalogImage = async (file) => {
       );
     }
 
-    const dominantDimension = Math.max(image.naturalWidth, image.naturalHeight);
-    const baseScale =
-      dominantDimension > MAX_OUTPUT_DIMENSION
-        ? MAX_OUTPUT_DIMENSION / dominantDimension
-        : 1;
-
-    let preparedDataUrl = "";
-    let preparedWidth = image.naturalWidth;
-    let preparedHeight = image.naturalHeight;
-
-    for (const scaleStep of SCALE_STEPS) {
-      const width = Math.max(
-        MIN_CATALOG_IMAGE_WIDTH,
-        Math.round(image.naturalWidth * baseScale * scaleStep)
-      );
-      const height = Math.max(
-        MIN_CATALOG_IMAGE_HEIGHT,
-        Math.round(image.naturalHeight * baseScale * scaleStep)
-      );
-      const canvas = createCanvas(image, width, height);
-
-      for (const quality of OUTPUT_QUALITY_STEPS) {
-        const candidateDataUrl = canvas.toDataURL(OUTPUT_MIME_TYPE, quality);
-        const candidateSize = decodeBase64Size(candidateDataUrl);
-
-        preparedDataUrl = candidateDataUrl;
-        preparedWidth = width;
-        preparedHeight = height;
-
-        if (candidateSize <= TARGET_OUTPUT_SIZE_BYTES) {
-          return {
-            id: globalThis.crypto?.randomUUID?.() || `photo-${Date.now()}`,
-            fileName: file.name,
-            mimeType: OUTPUT_MIME_TYPE,
-            width,
-            height,
-            sizeBytes: candidateSize,
-            dataUrl: candidateDataUrl,
-            previewUrl: candidateDataUrl,
-          };
-        }
-      }
-    }
+    const dataUrl = await readFileAsDataUrl(file);
 
     return {
       id: globalThis.crypto?.randomUUID?.() || `photo-${Date.now()}`,
       fileName: file.name,
-      mimeType: OUTPUT_MIME_TYPE,
-      width: preparedWidth,
-      height: preparedHeight,
-      sizeBytes: decodeBase64Size(preparedDataUrl),
-      dataUrl: preparedDataUrl,
-      previewUrl: preparedDataUrl,
+      mimeType: file.type,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      sizeBytes: file.size,
+      dataUrl,
+      previewUrl: dataUrl,
     };
   } finally {
     URL.revokeObjectURL(objectUrl);

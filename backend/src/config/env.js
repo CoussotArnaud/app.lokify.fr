@@ -24,6 +24,8 @@ const parseList = (value) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
+const normalizeUrl = (value) => String(value || "").trim().replace(/\/+$/, "");
+
 const vercelEnv = String(process.env.VERCEL_ENV || "")
   .trim()
   .toLowerCase();
@@ -104,6 +106,17 @@ const env = {
   smtpSecure: parseBoolean(process.env.SMTP_SECURE, false),
   smtpUser: process.env.SMTP_USER || "",
   smtpPassword: process.env.SMTP_PASSWORD || "",
+  r2AccountId: String(process.env.R2_ACCOUNT_ID || "").trim(),
+  r2AccessKeyId: String(process.env.R2_ACCESS_KEY_ID || "").trim(),
+  r2SecretAccessKey: String(process.env.R2_SECRET_ACCESS_KEY || "").trim(),
+  r2Bucket: String(process.env.R2_BUCKET || "lokify-images").trim(),
+  r2PublicBaseUrl: normalizeUrl(process.env.R2_PUBLIC_BASE_URL),
+  r2Region: String(process.env.R2_REGION || "auto").trim() || "auto",
+  r2Endpoint:
+    normalizeUrl(process.env.R2_ENDPOINT) ||
+    (String(process.env.R2_ACCOUNT_ID || "").trim()
+      ? `https://${String(process.env.R2_ACCOUNT_ID || "").trim()}.r2.cloudflarestorage.com`
+      : ""),
   cronSecret: process.env.CRON_SECRET || "",
   passwordResetBaseUrl:
     process.env.PASSWORD_RESET_BASE_URL ||

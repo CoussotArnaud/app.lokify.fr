@@ -1,6 +1,7 @@
 import asyncHandler from "../utils/async-handler.js";
 import {
   appendItemProfilePhoto,
+  createCatalogProduct,
   createCatalogPack,
   createCatalogTaxRate,
   deleteCatalogCategory,
@@ -12,6 +13,7 @@ import {
   listCatalogPacks,
   listCatalogTaxRates,
   listItemProfiles,
+  updateCatalogProduct,
   updateCatalogPack,
   updateCatalogTaxRate,
   upsertCatalogCategory,
@@ -66,6 +68,16 @@ export const putItemProfile = asyncHandler(async (req, res) => {
 export const postItemProfilePhoto = asyncHandler(async (req, res) => {
   const itemProfile = await appendItemProfilePhoto(req.user.id, req.params.itemId, req.body);
   res.status(201).json({ itemProfile });
+});
+
+export const postCatalogProduct = asyncHandler(async (req, res) => {
+  const result = await createCatalogProduct(req.user.id, req.body);
+  res.status(201).json(result);
+});
+
+export const putCatalogProduct = asyncHandler(async (req, res) => {
+  const result = await updateCatalogProduct(req.user.id, req.params.itemId, req.body);
+  res.json(result);
 });
 
 export const postDuplicateCatalogItem = asyncHandler(async (req, res) => {

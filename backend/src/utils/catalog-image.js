@@ -190,7 +190,7 @@ const getImageDimensions = (buffer, mimeType) => {
   });
 };
 
-export const validateCatalogImagePayload = (payload = {}) => {
+export const parseCatalogImagePayload = (payload = {}) => {
   const parsedImage = parseImageDataUrl(payload.data_url ?? payload.dataUrl);
 
   if (!allowedMimeTypes.has(parsedImage.mimeType)) {
@@ -199,7 +199,25 @@ export const validateCatalogImagePayload = (payload = {}) => {
     });
   }
 
-  if (parsedImage.buffer.byteLength > MAX_CATALOG_IMAGE_SIZE_BYTES) {
+  return {
+    dataUrl: parsedImage.dataUrl,
+    buffer: parsedImage.buffer,
+    mimeType: parsedImage.mimeType,
+    fileName: String(payload.file_name ?? payload.fileName ?? "").trim() || null,
+  };
+};
+
+export const validateCatalogImageAsset = (asset = {}) => {
+  const mimeType = String(asset.mimeType || "").toLowerCase();
+  const buffer = Buffer.isBuffer(asset.buffer) ? asset.buffer : Buffer.from(asset.buffer || []);
+
+  if (!allowedMimeTypes.has(mimeType)) {
+    throw new HttpError(400, "Format d'image non pris en charge. Utilisez JPG, PNG ou WebP.", {
+      code: "catalog_image_type",
+    });
+  }
+
+  if (buffer.byteLength > MAX_CATALOG_IMAGE_SIZE_BYTES) {
     throw new HttpError(
       413,
       `L'image depasse la taille maximale autorisee de ${Math.round(
@@ -209,13 +227,13 @@ export const validateCatalogImagePayload = (payload = {}) => {
     );
   }
 
-  if (parsedImage.buffer.byteLength < MIN_CATALOG_IMAGE_SIZE_BYTES) {
+  if (buffer.byteLength < MIN_CATALOG_IMAGE_SIZE_BYTES) {
     throw new HttpError(400, "L'image est trop petite pour etre exploitable.", {
       code: "catalog_image_too_small",
     });
   }
 
-  const dimensions = getImageDimensions(parsedImage.buffer, parsedImage.mimeType);
+  const dimensions = getImageDimensions(buffer, mimeType);
 
   if (
     dimensions.width < MIN_CATALOG_IMAGE_WIDTH ||
@@ -229,11 +247,21 @@ export const validateCatalogImagePayload = (payload = {}) => {
   }
 
   return {
-    data_url: parsedImage.dataUrl,
-    mime_type: parsedImage.mimeType,
-    size_bytes: parsedImage.buffer.byteLength,
+    buffer,
+    mime_type: mimeType,
+    size_bytes: buffer.byteLength,
     width: dimensions.width,
     height: dimensions.height,
-    file_name: String(payload.file_name ?? payload.fileName ?? "").trim() || null,
+    file_name: String(asset.fileName ?? asset.file_name ?? "").trim() || null,
+  };
+};
+
+export const validateCatalogImagePayload = (payload = {}) => {
+  const parsedImage = parseCatalogImagePayload(payload);
+  const validatedImage = validateCatalogImageAsset(parsedImage);
+
+  return {
+    ...validatedImage,
+    data_url: parsedImage.dataUrl,
   };
 };

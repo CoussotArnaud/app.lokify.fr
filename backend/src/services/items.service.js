@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
 import { query } from "../config/db.js";
+import { deleteCatalogManagedPhoto, isManagedCatalogPhotoUrl } from "./catalog-photo-storage.service.js";
 import HttpError from "../utils/http-error.js";
 
 const allowedStatuses = new Set(["available", "reserved", "maintenance", "unavailable"]);
@@ -34,6 +35,38 @@ const validateItem = (item) => {
   if (!allowedStatuses.has(item.status)) {
     throw new HttpError(400, "Statut materiel invalide.");
   }
+};
+
+const parsePhotoList = (value) => {
+  try {
+    const parsedValue = JSON.parse(value || "[]");
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch (_error) {
+    return [];
+  }
+};
+
+const listReferencedPhotosByOtherItems = async (userId, itemId) => {
+  const { rows } = await query(
+    `
+      SELECT photos_json
+      FROM item_profiles
+      WHERE user_id = $1
+        AND item_id <> $2
+    `,
+    [userId, itemId]
+  );
+
+  const referencedPhotos = new Set();
+  rows.forEach((row) => {
+    parsePhotoList(row.photos_json).forEach((photoUrl) => {
+      if (photoUrl) {
+        referencedPhotos.add(photoUrl);
+      }
+    });
+  });
+
+  return referencedPhotos;
 };
 
 export const listItems = async (userId) => {
@@ -98,6 +131,16 @@ export const updateItem = async (userId, itemId, payload) => {
 };
 
 export const deleteItem = async (userId, itemId) => {
+  const { rows: photoRows } = await query(
+    `
+      SELECT photos_json
+      FROM item_profiles
+      WHERE item_id = $1 AND user_id = $2
+      LIMIT 1
+    `,
+    [itemId, userId]
+  );
+  const photosToDelete = parsePhotoList(photoRows[0]?.photos_json).filter(isManagedCatalogPhotoUrl);
   const { rows } = await query(
     "DELETE FROM items WHERE id = $1 AND user_id = $2 RETURNING id",
     [itemId, userId]
@@ -105,5 +148,23 @@ export const deleteItem = async (userId, itemId) => {
 
   if (!rows[0]) {
     throw new HttpError(404, "Materiel introuvable.");
+  }
+
+  const referencedPhotos = await listReferencedPhotosByOtherItems(userId, itemId);
+
+  for (const photoUrl of photosToDelete) {
+    if (referencedPhotos.has(photoUrl)) {
+      continue;
+    }
+
+    try {
+      await deleteCatalogManagedPhoto(photoUrl);
+    } catch (error) {
+      console.error("Unable to delete product image from R2 after item deletion.", {
+        itemId,
+        photoUrl,
+        error,
+      });
+    }
   }
 };

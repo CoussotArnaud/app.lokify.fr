@@ -145,7 +145,7 @@ const withStableIds = (entries = [], prefix) =>
     id: entry.id || createLocalId(prefix),
   }));
 
-const buildItemProfilePayload = (form, selectedCategory, normalizedTaxRateId, photos) => ({
+const buildItemProfilePayload = (form, selectedCategory, normalizedTaxRateId) => ({
   internal_description: form.internal_description,
   tax_rate_id: normalizedTaxRateId,
   vat: normalizedTaxRateId ? null : null,
@@ -172,7 +172,7 @@ const buildItemProfilePayload = (form, selectedCategory, normalizedTaxRateId, ph
   public_name: form.public_name || form.name,
   public_description: form.public_description,
   long_description: form.long_description,
-  photos,
+  photos: form.photos,
   related_enabled: form.related_enabled,
   related_product_ids: form.related_product_ids,
   related_sort_note: form.related_sort_note,
@@ -215,6 +215,22 @@ const buildImageUploadErrorMessage = (submissionError) => {
   }
 
   return submissionError.message || "L'image n'a pas pu etre envoyee.";
+};
+
+const buildCatalogProductPhotoWarning = (photoUploadFailures = [], keptExistingPhotos = false) => {
+  if (!Array.isArray(photoUploadFailures) || !photoUploadFailures.length) {
+    return "";
+  }
+
+  const firstFailureMessage = buildImageUploadErrorMessage(photoUploadFailures[0]);
+  const baseMessage =
+    photoUploadFailures.length === 1
+      ? firstFailureMessage
+      : "Certaines images n'ont pas pu etre envoyees.";
+
+  return keptExistingPhotos
+    ? `${baseMessage} Les photos deja presentes ont ete conservees.`
+    : baseMessage;
 };
 
 function ProductEditorPageContent() {
@@ -430,80 +446,58 @@ function ProductEditorPageContent() {
 
     try {
       const selectedCategory = categories.find((category) => category.slug === form.category_slug);
-      const response = await workspace.saveItem(
+      const normalizedTaxRateId = availableTaxRates.some((taxRate) => taxRate.id === form.tax_rate_id)
+        ? form.tax_rate_id
+        : null;
+      const response = await workspace.saveCatalogProduct(
         {
-          name: form.name,
-          category: form.category_name || selectedCategory?.name || "",
-          stock: Number(form.stock || 0),
-          status: form.status,
-          price: Number(form.price_day || 0),
-          deposit: Number(form.deposit || 0),
+          item: {
+            name: form.name,
+            category: form.category_name || selectedCategory?.name || "",
+            stock: Number(form.stock || 0),
+            status: form.status,
+            price: Number(form.price_day || 0),
+            deposit: Number(form.deposit || 0),
+          },
+          profile: buildItemProfilePayload(form, selectedCategory, normalizedTaxRateId),
+          photo_uploads: pendingPhotos.map((pendingPhoto) => ({
+            data_url: pendingPhoto.dataUrl,
+            file_name: pendingPhoto.fileName,
+          })),
         },
         editingId || null
       );
 
       const savedProductId = response?.item?.id || editingId;
-      const normalizedTaxRateId = availableTaxRates.some((taxRate) => taxRate.id === form.tax_rate_id)
-        ? form.tax_rate_id
-        : null;
-      await workspace.saveItemProfile(
-        savedProductId,
-        buildItemProfilePayload(form, selectedCategory, normalizedTaxRateId, form.photos)
+      const savedPhotos = Array.isArray(response?.itemProfile?.photos)
+        ? response.itemProfile.photos
+        : form.photos;
+      const uploadWarningMessage = buildCatalogProductPhotoWarning(
+        response?.photoUploadFailures,
+        response?.keptExistingPhotos
       );
 
-      let uploadedPhotos = form.photos;
-      const uploadFailures = [];
-
-      for (const pendingPhoto of pendingPhotos) {
-        try {
-          const uploadResponse = await workspace.uploadCatalogItemPhoto(savedProductId, {
-            data_url: pendingPhoto.dataUrl,
-            file_name: pendingPhoto.fileName,
-          });
-
-          uploadedPhotos = Array.isArray(uploadResponse?.itemProfile?.photos)
-            ? uploadResponse.itemProfile.photos
-            : uploadedPhotos;
-        } catch (submissionError) {
-          uploadFailures.push({
-            id: pendingPhoto.id,
-            message: buildImageUploadErrorMessage(submissionError),
-          });
-        }
-      }
-
-      if (pendingPhotos.length) {
-        setForm((current) => ({
-          ...current,
-          photos: uploadedPhotos,
-        }));
-        setPendingPhotos((current) =>
-          current.filter((photo) =>
-            uploadFailures.some((failure) => failure.id === photo.id)
-          )
-        );
-      }
+      setForm((current) => ({
+        ...current,
+        photos: savedPhotos,
+      }));
+      setPendingPhotos([]);
 
       removeCatalogDraft(draftKey);
       setAutosaveMessage("Brouillon synchronise.");
 
-      if (uploadFailures.length) {
-        const uploadErrorMessage =
-          uploadFailures.length === 1
-            ? uploadFailures[0].message
-            : "Certaines images n'ont pas pu etre envoyees.";
-
+      if (uploadWarningMessage) {
         if (!editingId) {
           setFlashMessage({
             type: "error",
-            message: `Produit cree, mais ${uploadErrorMessage.charAt(0).toLowerCase()}${uploadErrorMessage.slice(1)}`,
+            message: `Le produit a bien ete cree mais ${uploadWarningMessage.charAt(0).toLowerCase()}${uploadWarningMessage.slice(1)}`,
           });
           router.replace(`/catalogue/produits/nouveau?product=${savedProductId}&mode=edit`);
           return;
         }
 
-        setFeedback("Produit enregistre.");
-        setError(uploadErrorMessage);
+        setFeedback("Produit mis a jour.");
+        setError(uploadWarningMessage);
         return;
       }
 
