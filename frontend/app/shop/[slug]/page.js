@@ -1,10 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import BrandLogo from "../../../components/brand-logo";
+import StorefrontCatalogStage from "../../../components/storefront/catalog";
+import {
+  StorefrontCategoriesSection,
+  StorefrontFeaturedSection,
+  StorefrontFooter,
+  StorefrontGuideSection,
+  StorefrontHero,
+  StorefrontReassuranceStrip,
+  StorefrontReviewsSection,
+  StorefrontTopbar,
+} from "../../../components/storefront/sections";
 import StatusPill from "../../../components/status-pill";
 import { apiRequest } from "../../../lib/api";
 import { formatCurrency } from "../../../lib/date";
@@ -55,18 +64,18 @@ const availabilityMessageByReason = {
 const defaultStorefrontReviewCards = [
   {
     id: "review-1",
-    author: "Reservation simple",
-    copy: "Une experience fluide, rapide a comprendre et rassurante avant la validation finale.",
+    author: "Parcours rassurant",
+    copy: "Le choix des dates, la lecture du panier et la demande finale sont restes tres simples du debut a la fin.",
   },
   {
     id: "review-2",
-    author: "Materiel soigne",
-    copy: "Des visuels clairs, un rendu premium et des produits mis en avant de facon plus vendeuse.",
+    author: "Selection bien presentee",
+    copy: "Les produits sont faciles a comparer, les tarifs sont clairs et la boutique donne envie de reserver.",
   },
   {
     id: "review-3",
-    author: "Equipe reactive",
-    copy: "Un parcours qui donne confiance, avec paiement, livraison et aide visibles tout de suite.",
+    author: "Validation sans friction",
+    copy: "On comprend vite comment avancer, avec les bons reperes sur la disponibilite, la logistique et la validation.",
   },
 ];
 
@@ -187,7 +196,7 @@ export default function PublicStorefrontPage() {
   const [visibleProductLimit, setVisibleProductLimit] = useState(initialVisibleProductCount);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [draftReady, setDraftReady] = useState(false);
-  const [showCatalog, setShowCatalog] = useState(false);
+  const [showCatalog, setShowCatalog] = useState(true);
   const [activeCategoryFilter, setActiveCategoryFilter] = useState("all");
   const [featuredOffset, setFeaturedOffset] = useState(0);
 
@@ -739,6 +748,15 @@ export default function PublicStorefrontPage() {
     setSuccessMessage("");
   };
 
+  const handleBookingFieldChange = (field, value) => {
+    setBookingForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    resetMessages();
+    setIsCheckoutModalOpen(false);
+  };
+
   const commitCartEntry = (draftEntry) => {
     const normalizedDraft = {
       id: draftEntry.id || "",
@@ -1047,28 +1065,13 @@ export default function PublicStorefrontPage() {
   };
 
   return (
-    <div className="storefront-page public-shop-page public-shop-v4 public-shop-v5">
-      <header className="public-shop-topbar">
-        <div className="public-shop-topbar-inner">
-          <div className="public-shop-topbar-brand">
-            <BrandLogo className="public-shop-topbar-logo" />
-          </div>
-
-          <nav className="public-shop-topbar-nav" aria-label="Navigation boutique">
-            <a href="#shop-categories">Location plaisir</a>
-            <a href="#shop-info">En savoir plus</a>
-          </nav>
-
-          <div className="public-shop-topbar-actions">
-            <Link href={publicPath} className="button ghost" target="_blank">
-              Lien direct
-            </Link>
-            <button type="button" className="button primary" onClick={() => revealCatalog("all")}>
-              Louer
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="storefront-page public-shop-page public-shop-v4 public-shop-v5 public-shop-v6">
+      <StorefrontTopbar
+        publicPath={publicPath}
+        hasReviews={Boolean(storefront?.reviews_enabled && storefront?.reviews_url)}
+        revealCatalog={revealCatalog}
+        scrollToSection={scrollToSection}
+      />
 
       <div className="storefront-shell public-shop-shell">
         {shopState.error ? <p className="feedback error">{shopState.error}</p> : null}
@@ -1077,922 +1080,100 @@ export default function PublicStorefrontPage() {
         ) : null}
         {successMessage ? <p className="feedback success">{successMessage}</p> : null}
 
-        <section className="public-shop-v5-hero" id="shop-hero">
-          <div className="public-shop-v5-hero-copy">
-            <p className="eyebrow">Bienvenue chez</p>
-            <h1>{storefrontName}</h1>
-            <StatusPill tone={storefrontLiveStatus.tone}>{storefrontLiveStatus.label}</StatusPill>
-            <p className="public-shop-v5-hero-description">
-              Boutique publique premium pour reserver rapidement vos produits phares, puis preparer
-              le futur tunnel de reservation sans casser l&apos;existant.
-            </p>
-
-            <div className="public-shop-v5-hero-actions">
-              <button type="button" className="button primary" onClick={() => revealCatalog("all")}>
-                Louer
-              </button>
-              <button
-                type="button"
-                className="button ghost"
-                onClick={() =>
-                  featuredProducts.length ? scrollToSection("shop-featured") : revealCatalog("all")
-                }
-              >
-                Voir tous les produits
-              </button>
-            </div>
-
-            <section id="shop-reservation" className="public-shop-v5-reservation-card">
-              <div className="public-shop-v5-reservation-head">
-                <div>
-                  <h2>Reservez en 2 minutes !</h2>
-                  <p>
-                    Les horaires sont visibles maintenant, la logique fine viendra avec le tunnel
-                    complet.
-                  </p>
-                </div>
-              </div>
-
-              <div className="public-shop-v5-reservation-grid">
-                <div className="field">
-                  <label htmlFor="public-storefront-hero-start-date">Date de debut</label>
-                  <input
-                    id="public-storefront-hero-start-date"
-                    type="date"
-                    value={bookingForm.start_date}
-                    onChange={(event) => {
-                      setBookingForm((current) => ({ ...current, start_date: event.target.value }));
-                      resetMessages();
-                      setIsCheckoutModalOpen(false);
-                    }}
-                  />
-                </div>
-
-                <div className="field">
-                  <label htmlFor="public-storefront-hero-start-time">Heure</label>
-                  <input
-                    id="public-storefront-hero-start-time"
-                    type="time"
-                    value={bookingForm.start_time}
-                    onChange={(event) =>
-                      setBookingForm((current) => ({ ...current, start_time: event.target.value }))
-                    }
-                  />
-                </div>
-
-                <div className="field">
-                  <label htmlFor="public-storefront-hero-end-date">Date de fin</label>
-                  <input
-                    id="public-storefront-hero-end-date"
-                    type="date"
-                    value={bookingForm.end_date}
-                    onChange={(event) => {
-                      setBookingForm((current) => ({ ...current, end_date: event.target.value }));
-                      resetMessages();
-                      setIsCheckoutModalOpen(false);
-                    }}
-                  />
-                </div>
-
-                <div className="field">
-                  <label htmlFor="public-storefront-hero-end-time">Heure</label>
-                  <input
-                    id="public-storefront-hero-end-time"
-                    type="time"
-                    value={bookingForm.end_time}
-                    onChange={(event) =>
-                      setBookingForm((current) => ({ ...current, end_time: event.target.value }))
-                    }
-                  />
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className="button primary public-shop-v5-reservation-cta"
-                onClick={() => revealCatalog("all")}
-              >
-                Louer
-              </button>
-            </section>
-          </div>
-
-          <div className="public-shop-v5-hero-media">
-            {heroImage ? (
-              <img src={heroImage} alt={storefrontName} className="public-shop-v5-hero-image" />
-            ) : (
-              <div className="public-shop-v5-hero-placeholder" aria-hidden="true">
-                <span>{storefrontName.slice(0, 1).toUpperCase()}</span>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="public-shop-v5-reassurance" aria-label="Reassurance">
-          <article className="public-shop-v5-reassurance-card">
-            <strong>{storefront?.reviews_enabled ? "4.9 sur Google" : "Avis clients"}</strong>
-            <span>{storefront?.reviews_enabled ? "Section avis activee." : "Bloc avis pret a etre active."}</span>
-          </article>
-          <article className="public-shop-v5-reassurance-card">
-            <strong>{paymentSummary.enabled ? "Paiement 100% securise" : "Demande securisee"}</strong>
-            <span>{paymentSummary.description}</span>
-          </article>
-          <article className="public-shop-v5-reassurance-card">
-            <strong>Livraison possible</strong>
-            <span>Le parcours met deja la logistique en avant visuellement.</span>
-          </article>
-          <article className="public-shop-v5-reassurance-card">
-            <strong>Une question ?</strong>
-            <span>
-              <a href="#shop-footer">Reponse ici</a>
-            </span>
-          </article>
-        </section>
-
-        <section id="shop-categories" className="public-shop-section-block public-shop-v5-section">
-          <div className="public-shop-section-head">
-            <div>
-              <p className="eyebrow">Categories</p>
-              <h2>Location plaisir</h2>
-              <p>Cartes visuelles preparees pour guider vers le futur tunnel de reservation.</p>
-            </div>
-            <button type="button" className="button ghost" onClick={() => revealCatalog("all")}>
-              Voir tous les produits
-            </button>
-          </div>
-
-          {categories.length ? (
-            <div className="public-shop-v5-category-grid">
-              {categories.map((category) => (
-                <article key={category.slug} className="public-shop-v5-category-card">
-                  <div className="public-shop-v5-category-media">
-                    {category.image_url ? (
-                      <img src={category.image_url} alt={category.image_alt_text || category.name} />
-                    ) : (
-                      <div className="public-shop-v5-category-placeholder" aria-hidden="true">
-                        <span>{category.name.slice(0, 1).toUpperCase()}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="public-shop-v5-category-overlay">
-                    <strong>{category.name}</strong>
-                    <span>
-                      A partir de {formatCurrency(category.starting_price)} · {category.product_count} produit(s)
-                    </span>
-                    <button
-                      type="button"
-                      className="button primary"
-                      onClick={() => revealCatalog(category.slug)}
-                    >
-                      Decouvrir
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <strong>Aucune categorie visible</strong>
-              <span>Ajoutez des categories illustrees dans le catalogue pour alimenter cette section.</span>
-            </div>
-          )}
-        </section>
-
-        {featuredProducts.length ? (
-          <section id="shop-featured" className="public-shop-section-block public-shop-v5-section">
-            <div className="public-shop-section-head">
-              <div>
-                <p className="eyebrow">Selection</p>
-                <h2>Nos produits phares</h2>
-                <p>Section configurable masquee automatiquement si aucun produit n&apos;est mis en avant.</p>
-              </div>
-              <div className="public-shop-v5-inline-actions">
-                <button
-                  type="button"
-                  className="button subtle"
-                  onClick={() => setFeaturedOffset((current) => Math.max(0, current - featuredPageSize))}
-                  disabled={featuredOffset === 0}
-                  aria-label="Produits precedents"
-                >
-                  ←
-                </button>
-                <button
-                  type="button"
-                  className="button subtle"
-                  onClick={() =>
-                    setFeaturedOffset((current) =>
-                      current + featuredPageSize >= featuredProducts.length ? current : current + featuredPageSize
-                    )
-                  }
-                  disabled={featuredOffset + featuredPageSize >= featuredProducts.length}
-                  aria-label="Produits suivants"
-                >
-                  →
-                </button>
-                <button type="button" className="button ghost" onClick={() => revealCatalog("all")}>
-                  Voir tous les produits
-                </button>
-              </div>
-            </div>
-
-            <div className="public-shop-v5-featured-grid">
-              {visibleFeaturedProducts.map((product) => {
-                const meta = availabilityMeta[product.status] || availabilityMeta.available;
-                const hasOptions = Array.isArray(product.options) && product.options.length > 0;
-
-                return (
-                  <article key={product.id} className="public-shop-v5-featured-card">
-                    <div className="public-shop-v5-featured-media">
-                      {product.thumbnail ? (
-                        <img src={product.thumbnail} alt={product.public_name} />
-                      ) : (
-                        <div className="public-shop-v5-category-placeholder" aria-hidden="true">
-                          <span>{product.public_name.slice(0, 1).toUpperCase()}</span>
-                        </div>
-                      )}
-                      <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
-                    </div>
-
-                    <div className="public-shop-v5-featured-copy">
-                      <strong>{product.public_name}</strong>
-                      <p>{product.public_description}</p>
-                      <span className="public-shop-v5-price-tag">A partir de {formatCurrency(product.price)}</span>
-
-                      <div className="public-shop-v5-inline-actions">
-                        <button type="button" className="button subtle" onClick={() => openProductPreview(product)}>
-                          Voir
-                        </button>
-                        <button
-                          type="button"
-                          className="button primary"
-                          onClick={() => addProductToCart(product)}
-                          disabled={product.available_quantity <= 0}
-                        >
-                          {hasOptions ? "Configurer" : "Louer"}
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
-
-        <section id="shop-info" className="public-shop-section-block public-shop-v5-section public-shop-v5-info-section">
-          <div className="public-shop-v5-info-copy">
-            <p className="eyebrow">Presentation</p>
-            <h2>En savoir plus</h2>
-            <p>
-              Specialiste de la location de produits evenementiels, cette page prepare une boutique
-              plus premium et plus claire, sans casser les reservations ni le paiement.
-            </p>
-
-            <ol className="public-shop-v5-step-list">
-              <li>Selectionnez vos dates et heures de location.</li>
-              <li>Choisissez les produits souhaites.</li>
-              <li>Saisissez vos coordonnees client.</li>
-              <li>Validez puis finalisez votre demande ou votre paiement.</li>
-            </ol>
-
-            <p className="public-shop-v5-info-note">
-              Les horaires et jours restent indicatifs tant que le tunnel final n&apos;est pas encore
-              deploye. Le socle actuel de reservation reste conserve.
-            </p>
-
-            <button type="button" className="button primary" onClick={() => revealCatalog("all")}>
-              Reserver
-            </button>
-          </div>
-
-          {storefront?.map_enabled && mapAddress ? (
-            <div className="public-shop-v5-map-card">
-              <div className="public-shop-section-head">
-                <div>
-                  <h2>Emplacement</h2>
-                  <p>{mapAddress}</p>
-                </div>
-              </div>
-              <iframe
-                title={`Carte ${storefrontName}`}
-                src={mapEmbedUrl}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            </div>
-          ) : null}
-        </section>
-
-        {storefront?.reviews_enabled && storefront?.reviews_url ? (
-          <section id="shop-reviews" className="public-shop-section-block public-shop-v5-section">
-            <div className="public-shop-section-head">
-              <div>
-                <p className="eyebrow">Confiance</p>
-                <h2>Nos avis</h2>
-              </div>
-              <a href={storefront.reviews_url} className="button ghost" target="_blank" rel="noreferrer">
-                Lire la suite
-              </a>
-            </div>
-
-            <div className="public-shop-v5-review-badge">
-              <strong>4.9</strong>
-              <span>sur Google</span>
-            </div>
-
-            <div className="public-shop-v5-review-grid">
-              {reviewCards.map((review) => (
-                <article key={review.id} className="public-shop-v5-review-card">
-                  <strong>{review.author}</strong>
-                  <div className="public-shop-v5-review-stars" aria-hidden="true">
-                    {Array.from({ length: 5 }).map((_, index) => (
-                      <span key={`${review.id}-star-${index}`}>★</span>
-                    ))}
-                  </div>
-                  <p>{review.copy}</p>
-                  <a href={storefront.reviews_url} target="_blank" rel="noreferrer">
-                    Lire la suite
-                  </a>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section
-          id="storefront-catalogue"
-          className={`public-shop-stage ${shouldShowCatalog ? "" : "public-shop-v5-catalogue-hidden"}`.trim()}
-          aria-hidden={!shouldShowCatalog}
-        >
-          <main className="public-shop-main-column">
-            <p className="public-shop-breadcrumb">Lokify / {storefrontName}</p>
-
-            <section className="public-shop-provider-shell" id="shop-details">
-              <div className="public-shop-provider-row">
-                <div className="public-shop-provider-mark" aria-hidden="true">
-                  {storefrontName.slice(0, 1).toUpperCase()}
-                </div>
-
-                <div className="public-shop-provider-copy">
-                  <p className="eyebrow">
-                    {paymentSummary.enabled ? "Paiement en ligne" : "Reservation en ligne"}
-                  </p>
-                  <h1>{storefrontName}</h1>
-                  <div className="public-shop-provider-meta">
-                    <span>{providerLocation}</span>
-                    <span>{visibleProductCount} produit(s) visibles</span>
-                    {packs.length ? <span>{visiblePackCount} pack(s) actifs</span> : null}
-                    <span>{selectableProductCount + selectablePackCount} element(s) reservables</span>
-                  </div>
-                  <p>
-                    {paymentSummary.enabled
-                      ? "Choisissez vos dates, ajoutez plusieurs produits, packs et options, puis verifiez l'ensemble du panier avant de passer au paiement en ligne."
-                      : "Choisissez vos dates, ajoutez plusieurs produits, packs et options, puis verifiez l'ensemble du panier avant d'envoyer votre demande."}
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            <nav className="public-shop-tab-nav" aria-label="Sections boutique">
-              <a href="#shop-products" className="active">
-                Produits
-              </a>
-              {packs.length ? <a href="#shop-packs">Packs</a> : null}
-              <a href="#shop-cart">Panier</a>
-              <a href="#shop-details">Informations</a>
-            </nav>
-
-            <div className="public-shop-toolbar public-shop-toolbar-wide">
-              <article className="public-shop-toolbar-card">
-                <span>Catalogue</span>
-                <strong>{visibleProductCount + visiblePackCount} element(s) publics</strong>
-                <p>{visibleProductCount} produits et {visiblePackCount} packs visibles.</p>
-              </article>
-              <article className="public-shop-toolbar-card">
-                <span>Periode</span>
-                <strong>{compactPeriodLabel}</strong>
-                <p>{durationDays} jour(s) calcules a la journee.</p>
-              </article>
-              <article className="public-shop-toolbar-card">
-                <span>Panier</span>
-                <strong>{resolvedCartEntries.length} ligne(s)</strong>
-                <p>{totalRequestedQuantity} element(s) ajoutes au total.</p>
-              </article>
-            </div>
-
-            <section id="shop-products" className="public-shop-catalogue-section public-shop-section-block">
-              <div className="public-shop-section-head">
-                <div>
-                  <p className="eyebrow">Catalogue</p>
-                  <h2>Produits disponibles</h2>
-                  <p>Ajoutez plusieurs produits au panier, puis ajustez les quantites a droite.</p>
-                </div>
-              </div>
-
-              {shopState.loading ? (
-                <div className="empty-state public-shop-loading-state">
-                  <strong>Chargement de la boutique</strong>
-                  <span>Les disponibilites se recalculent pour la periode choisie.</span>
-                </div>
-              ) : products.length ? (
-                <>
-                  <div className="public-shop-product-grid">
-                    {visibleProducts.map((product) => {
-                      const meta = availabilityMeta[product.status] || availabilityMeta.available;
-                      const hasOptions = Array.isArray(product.options) && product.options.length > 0;
-                      const availabilityLabel =
-                        availabilityMessageByReason[product.availability_reason] || "Produit indisponible";
-
-                      return (
-                        <article key={product.id} className="public-shop-product-card">
-                          <div className="public-shop-product-visual">
-                            {product.thumbnail ? (
-                              <button
-                                type="button"
-                                className="public-shop-product-media-button"
-                                onClick={() => openProductPreview(product)}
-                                aria-label={`Voir la fiche produit ${product.public_name}`}
-                              >
-                                <img
-                                  src={product.thumbnail}
-                                  alt={product.public_name}
-                                  className="public-shop-product-media"
-                                />
-                              </button>
-                            ) : (
-                              <div className="public-shop-product-placeholder" aria-hidden="true">
-                                <span>{product.public_name.slice(0, 1).toUpperCase()}</span>
-                              </div>
-                            )}
-
-                            <div className="public-shop-product-visual-top">
-                              <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
-                            </div>
-                          </div>
-
-                          <div className="public-shop-product-copy">
-                            <div className="public-shop-product-head">
-                              <div>
-                                <strong>{product.public_name}</strong>
-                                <p>{product.public_description}</p>
-                              </div>
-                            </div>
-
-                            <div className="public-shop-product-pricing">
-                              <div className="public-shop-product-price">
-                                <strong>{formatCurrency(product.price)}</strong>
-                                <span>A partir de / jour</span>
-                              </div>
-
-                              <div className="public-shop-product-secondary">
-                                <span>Caution</span>
-                                <strong>{formatCurrency(product.deposit)}</strong>
-                              </div>
-                            </div>
-
-                            <div className="planning-inline-list public-shop-product-tags">
-                              {product.category ? (
-                                <span className="planning-mini-badge">{product.category}</span>
-                              ) : null}
-                              {product.sku ? <span className="planning-mini-badge">{product.sku}</span> : null}
-                              {hasOptions ? (
-                                <span className="planning-mini-badge">
-                                  {product.options.length} option(s)
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div className="public-shop-product-card-foot">
-                              <div className="public-shop-availability-copy">
-                                <strong>{availabilityLabel}</strong>
-                                <span>{product.available_quantity} unite(s) disponibles</span>
-                              </div>
-
-                              <div className="row-actions public-shop-product-card-actions">
-                                <button
-                                  type="button"
-                                  className="button subtle"
-                                  onClick={() => openProductPreview(product)}
-                                >
-                                  Voir la fiche
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`button ${
-                                    product.available_quantity > 0 ? "ghost" : "subtle"
-                                  }`}
-                                  onClick={() => addProductToCart(product)}
-                                  disabled={product.available_quantity <= 0}
-                                >
-                                  {hasOptions ? "Configurer" : "Ajouter"}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-
-                  {showLoadMoreProducts ? (
-                    <button
-                      type="button"
-                      className="button ghost public-shop-load-more"
-                      onClick={() =>
-                        setVisibleProductLimit((currentLimit) => currentLimit + initialVisibleProductCount)
-                      }
-                    >
-                      Voir plus
-                    </button>
-                  ) : null}
-                </>
-              ) : (
-                <div className="empty-state">
-                  <strong>Aucun produit public disponible</strong>
-                  <span>Le prestataire n'a pas encore publie de produit reservable.</span>
-                </div>
-              )}
-            </section>
-
-            {packs.length ? (
-              <section id="shop-packs" className="public-shop-catalogue-section public-shop-section-block">
-                <div className="public-shop-section-head">
-                  <div>
-                    <p className="eyebrow">Packs</p>
-                    <h2>Packs disponibles</h2>
-                    <p>Ajoutez des compositions deja preparees au meme panier.</p>
-                  </div>
-                </div>
-
-                <div className="public-shop-pack-grid">
-                  {packs.map((pack) => {
-                    const meta = availabilityMeta[pack.status] || availabilityMeta.available;
-                    const availabilityLabel =
-                      availabilityMessageByReason[pack.availability_reason] || "Pack indisponible";
-                    const hasDiscount = normalizeNumber(pack.base_price) > normalizeNumber(pack.price);
-
-                    return (
-                      <article key={pack.id} id={`pack-${pack.id}`} className="public-shop-pack-card">
-                        <div className="public-shop-product-head">
-                          <div>
-                            <span className="public-shop-card-type">Pack</span>
-                            <strong>{pack.name}</strong>
-                            <p>{pack.description || "Pack disponible a la reservation."}</p>
-                          </div>
-                          <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
-                        </div>
-
-                        <div className="public-shop-product-pricing">
-                          <div className="public-shop-product-price">
-                            <strong>{formatCurrency(pack.price)}</strong>
-                            <span>Tarif pack / jour</span>
-                          </div>
-
-                          <div className="public-shop-product-secondary">
-                            <span>Caution</span>
-                            <strong>{formatCurrency(pack.deposit)}</strong>
-                          </div>
-                        </div>
-
-                        <div className="planning-inline-list public-shop-product-tags">
-                          <span className="planning-mini-badge">{pack.product_count} produit(s)</span>
-                          {hasDiscount ? (
-                            <span className="planning-mini-badge">
-                              Au lieu de {formatCurrency(pack.base_price)}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div className="public-shop-pack-products">
-                          {pack.products.map((product) => (
-                            <span key={`${pack.id}-${product.item_id}`} className="planning-mini-badge">
-                              {product.public_name}
-                            </span>
-                          ))}
-                        </div>
-
-                        <div className="public-shop-product-card-foot">
-                          <div className="public-shop-availability-copy">
-                            <strong>{availabilityLabel}</strong>
-                            <span>{pack.available_quantity} pack(s) disponibles</span>
-                          </div>
-
-                          <button
-                            type="button"
-                            className={`button ${pack.available_quantity > 0 ? "ghost" : "subtle"}`}
-                            onClick={() => addPackToCart(pack)}
-                            disabled={pack.available_quantity <= 0}
-                          >
-                            Ajouter le pack
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : null}
-          </main>
-
-          <aside className="public-shop-sidebar">
-            <div className="public-shop-sidebar-sticky">
-              <section className="public-shop-sidebar-card public-shop-booking-card">
-                <div className="public-shop-sidebar-card-head">
-                  <h2>Vos dates de location</h2>
-                  <p>Les disponibilites se mettent a jour automatiquement quand vous changez la periode.</p>
-                </div>
-
-                <div className="public-shop-sidebar-fields">
-                  <div className="field">
-                    <label htmlFor="public-storefront-start-date">Date de debut</label>
-                    <input
-                      id="public-storefront-start-date"
-                      type="date"
-                      value={bookingForm.start_date}
-                      onChange={(event) => {
-                        setBookingForm((current) => ({ ...current, start_date: event.target.value }));
-                        resetMessages();
-                        setIsCheckoutModalOpen(false);
-                      }}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="public-storefront-end-date">Date de fin</label>
-                    <input
-                      id="public-storefront-end-date"
-                      type="date"
-                      value={bookingForm.end_date}
-                      onChange={(event) => {
-                        setBookingForm((current) => ({ ...current, end_date: event.target.value }));
-                        resetMessages();
-                        setIsCheckoutModalOpen(false);
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="public-shop-cart-summary">
-                  <div className="public-shop-cart-summary-row">
-                    <span>Periode</span>
-                    <strong>{compactPeriodLabel}</strong>
-                  </div>
-                  <div className="public-shop-cart-summary-row">
-                    <span>Duree</span>
-                    <strong>{durationDays} jour(s)</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section className="public-shop-sidebar-card public-shop-cart-card">
-                <div className="public-shop-cart-header">
-                  <div>
-                    <h2>{paymentSummary.enabled ? "Paiement en ligne" : "Mode de validation"}</h2>
-                    <p>{paymentSummary.description}</p>
-                  </div>
-                  <StatusPill tone={paymentSummary.enabled ? "success" : "neutral"}>
-                    {paymentSummary.label}
-                  </StatusPill>
-                </div>
-
-                <div className="public-shop-cart-summary">
-                  <div className="public-shop-cart-summary-row">
-                    <span>Montant location</span>
-                    <strong>{formatCurrency(totalEstimatedAmount)}</strong>
-                  </div>
-                  <div className="public-shop-cart-summary-row">
-                    <span>Caution</span>
-                    <strong>{formatCurrency(totalEstimatedDeposit)}</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section id="shop-cart" className="public-shop-sidebar-card public-shop-cart-card">
-                <div className="public-shop-cart-header">
-                  <div>
-                    <h2>Votre panier</h2>
-                    <p>Le recapitulatif se met a jour en temps reel selon vos selections.</p>
-                  </div>
-                  <StatusPill tone={cartStatusTone}>{cartStatusLabel}</StatusPill>
-                </div>
-
-                <div className="public-shop-cart-summary">
-                  <div className="public-shop-cart-summary-row">
-                    <span>Produits</span>
-                    <strong>{cartEntries.filter((entry) => entry.entry_type === "product").length}</strong>
-                  </div>
-                  <div className="public-shop-cart-summary-row">
-                    <span>Packs</span>
-                    <strong>{cartEntries.filter((entry) => entry.entry_type === "pack").length}</strong>
-                  </div>
-                  <div className="public-shop-cart-summary-row">
-                    <span>Quantites</span>
-                    <strong>{totalRequestedQuantity}</strong>
-                  </div>
-                </div>
-
-                {cartHasEntries ? (
-                  <div className="public-shop-cart-list">
-                    {resolvedCartEntries.map((entry) => {
-                      const editableProduct = entry.entry_type === "product" ? productById.get(entry.item_id) : null;
-                      const hasEditableOptions =
-                        editableProduct && Array.isArray(editableProduct.options) && editableProduct.options.length > 0;
-
-                      return (
-                        <article key={entry.id} className="public-shop-cart-item">
-                          <div className="public-shop-cart-item-head">
-                            <div>
-                              <span className="public-shop-cart-item-type">{entry.entry_type_label}</span>
-                              <strong>{entry.label}</strong>
-                            </div>
-                            <button
-                              type="button"
-                              className="public-shop-cart-control-button"
-                              onClick={() => removeCartEntry(entry.id)}
-                              aria-label={`Supprimer ${entry.label}`}
-                            >
-                              x
-                            </button>
-                          </div>
-
-                          {entry.description ? (
-                            <p className="muted-text public-shop-cart-item-meta">{entry.description}</p>
-                          ) : null}
-
-                          {entry.selected_options.length ? (
-                            <div className="public-shop-cart-item-options">
-                              {entry.selected_options.map((option) => (
-                                <span key={`${entry.id}-${option.id}`} className="planning-mini-badge">
-                                  {option.name}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-
-                          {entry.included_products.length ? (
-                            <div className="public-shop-pack-products">
-                              {entry.included_products.map((product) => (
-                                <span
-                                  key={`${entry.id}-${product.item_id}`}
-                                  className="planning-mini-badge"
-                                >
-                                  {product.public_name}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-
-                          <div className="public-shop-cart-item-meta">
-                            <span>{formatCurrency(entry.unit_price)} / jour</span>
-                            <span>{formatCurrency(entry.entry_total)} estime(s)</span>
-                            <span>{formatCurrency(entry.deposit_total)} caution</span>
-                          </div>
-
-                          <div className="public-shop-cart-controls">
-                            <button
-                              type="button"
-                              className="public-shop-cart-control-button"
-                              onClick={() => updateCartEntryQuantity(entry.id, entry.quantity - 1)}
-                              aria-label={`Diminuer ${entry.label}`}
-                            >
-                              -
-                            </button>
-                            <input
-                              className="public-shop-cart-control-input"
-                              type="number"
-                              min="1"
-                              value={entry.quantity}
-                              onChange={(event) => updateCartEntryQuantity(entry.id, event.target.value)}
-                              aria-label={`Quantite pour ${entry.label}`}
-                            />
-                            <button
-                              type="button"
-                              className="public-shop-cart-control-button"
-                              onClick={() => updateCartEntryQuantity(entry.id, entry.quantity + 1)}
-                              aria-label={`Augmenter ${entry.label}`}
-                            >
-                              +
-                            </button>
-
-                            {hasEditableOptions ? (
-                              <button
-                                type="button"
-                                className="button subtle"
-                                onClick={() => openProductConfigurator(editableProduct, entry)}
-                              >
-                                Options
-                              </button>
-                            ) : null}
-                          </div>
-
-                          <div className="public-shop-cart-item-status">
-                            <StatusPill tone={entry.is_available ? "success" : "danger"}>
-                              {entry.is_available ? "Disponible" : "A verifier"}
-                            </StatusPill>
-                            {entry.issue_messages.length ? (
-                              <ul className="public-shop-cart-issues">
-                                {entry.issue_messages.map((message) => (
-                                  <li key={`${entry.id}-${message}`}>{message}</li>
-                                ))}
-                              </ul>
-                            ) : null}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="public-shop-cart-empty">
-                    <strong>Votre panier est vide</strong>
-                    <span>
-                      Ajoutez un ou plusieurs produits ou packs pour preparer votre
-                      {paymentSummary.enabled ? " paiement." : " demande."}
-                    </span>
-                  </div>
-                )}
-
-                <div className="public-shop-cart-totals">
-                  <div className="public-shop-cart-summary-row">
-                    <span>Montant estime</span>
-                    <strong>{formatCurrency(totalEstimatedAmount)}</strong>
-                  </div>
-                  <div className="public-shop-cart-summary-row">
-                    <span>Caution estimee</span>
-                    <strong>{formatCurrency(totalEstimatedDeposit)}</strong>
-                  </div>
-                  <div className="public-shop-cart-summary-row">
-                    <span>Total lignes</span>
-                    <strong>{resolvedCartEntries.length}</strong>
-                  </div>
-                </div>
-
-                {uniqueAvailabilityIssues.length ? (
-                  <ul className="public-shop-cart-issues">
-                    {uniqueAvailabilityIssues.map((message) => (
-                      <li key={message}>{message}</li>
-                    ))}
-                  </ul>
-                ) : null}
-
-                {!isCheckoutModalOpen && submitError ? (
-                  <p className="feedback error public-shop-inline-feedback">{submitError}</p>
-                ) : null}
-
-                <button
-                  type="button"
-                  className="button primary public-shop-sidebar-cta"
-                  onClick={openCheckoutModal}
-                  disabled={shopState.loading || !cartHasEntries || isFinalizingCheckout}
-                >
-                  {shopState.loading ? "Mise a jour..." : checkoutActionLabel}
-                </button>
-              </section>
-
-              <section className="public-shop-sidebar-callout">
-                <strong>Besoin d'une demande personnalisee ?</strong>
-                <span>
-                  Ajoutez une note dans le formulaire final si vous avez une contrainte ou une
-                  precision logistique{paymentSummary.enabled ? " avant le passage au paiement" : ""}.
-                </span>
-              </section>
-            </div>
-          </aside>
-        </section>
-
-        <footer id="shop-footer" className="public-shop-v5-footer">
-          <div className="public-shop-v5-footer-grid">
-            <article>
-              <strong>{storefrontName}</strong>
-              <span>{providerLocation}</span>
-              <span>{visibleProductCount} produits visibles</span>
-            </article>
-            <article>
-              <strong>CGV</strong>
-              <a href="#shop-footer">A venir</a>
-              <a href="#shop-footer">Mentions</a>
-            </article>
-            <article>
-              <strong>FAQ</strong>
-              <a href="#shop-info">Reservation</a>
-              <a href="#shop-info">Livraison</a>
-            </article>
-            <article>
-              <strong>Reseaux</strong>
-              <a href="#shop-footer">Instagram</a>
-              <a href="#shop-footer">Facebook</a>
-            </article>
-            <article>
-              <strong>Paiements</strong>
-              <span>{paymentSummary.enabled ? "Carte bancaire" : "Validation manuelle"}</span>
-              <span>TVA et mails conserves</span>
-            </article>
-            <article>
-              <strong>Horaires</strong>
-              <span>Lun - Sam</span>
-              <span>09:00 - 19:00</span>
-            </article>
-          </div>
-        </footer>
+        <StorefrontHero
+          storefrontName={storefrontName}
+          storefrontLiveStatus={storefrontLiveStatus}
+          providerLocation={providerLocation}
+          heroImage={heroImage}
+          products={products}
+          categories={categories}
+          packs={packs}
+          bookingForm={bookingForm}
+          onBookingFieldChange={handleBookingFieldChange}
+          paymentSummary={paymentSummary}
+          visibleProductCount={visibleProductCount}
+          revealCatalog={revealCatalog}
+          scrollToSection={scrollToSection}
+          isLoading={shopState.loading}
+        />
+
+        <StorefrontReassuranceStrip paymentSummary={paymentSummary} />
+        <StorefrontCategoriesSection categories={categories} revealCatalog={revealCatalog} />
+        <StorefrontFeaturedSection
+          featuredProducts={featuredProducts}
+          visibleFeaturedProducts={visibleFeaturedProducts}
+          featuredOffset={featuredOffset}
+          featuredPageSize={featuredPageSize}
+          setFeaturedOffset={setFeaturedOffset}
+          revealCatalog={revealCatalog}
+          openProductPreview={openProductPreview}
+          addProductToCart={addProductToCart}
+          availabilityMeta={availabilityMeta}
+        />
+
+        <StorefrontGuideSection
+          mapAddress={storefront?.map_enabled ? mapAddress : ''}
+          mapEmbedUrl={mapEmbedUrl}
+          revealCatalog={revealCatalog}
+          paymentSummary={paymentSummary}
+          storefrontName={storefrontName}
+        />
+
+        <StorefrontReviewsSection storefront={storefront} reviewCards={reviewCards} />
+
+        <StorefrontCatalogStage
+          shouldShowCatalog={shouldShowCatalog}
+          storefrontName={storefrontName}
+          providerLocation={providerLocation}
+          visibleProductCount={visibleProductCount}
+          visiblePackCount={visiblePackCount}
+          compactPeriodLabel={compactPeriodLabel}
+          durationDays={durationDays}
+          totalRequestedQuantity={totalRequestedQuantity}
+          visibleProducts={visibleProducts}
+          showLoadMoreProducts={showLoadMoreProducts}
+          setVisibleProductLimit={setVisibleProductLimit}
+          initialVisibleProductCount={initialVisibleProductCount}
+          products={products}
+          packs={packs}
+          categories={categories}
+          activeCategoryFilter={activeCategoryFilter}
+          revealCatalog={revealCatalog}
+          shopState={shopState}
+          availabilityMeta={availabilityMeta}
+          availabilityMessageByReason={availabilityMessageByReason}
+          openProductPreview={openProductPreview}
+          addProductToCart={addProductToCart}
+          addPackToCart={addPackToCart}
+          bookingForm={bookingForm}
+          onBookingFieldChange={handleBookingFieldChange}
+          paymentSummary={paymentSummary}
+          totalEstimatedAmount={totalEstimatedAmount}
+          totalEstimatedDeposit={totalEstimatedDeposit}
+          cartStatusTone={cartStatusTone}
+          cartStatusLabel={cartStatusLabel}
+          cartEntries={cartEntries}
+          resolvedCartEntries={resolvedCartEntries}
+          cartHasEntries={cartHasEntries}
+          uniqueAvailabilityIssues={uniqueAvailabilityIssues}
+          submitError={submitError}
+          openCheckoutModal={openCheckoutModal}
+          checkoutActionLabel={checkoutActionLabel}
+          isFinalizingCheckout={isFinalizingCheckout}
+          removeCartEntry={removeCartEntry}
+          updateCartEntryQuantity={updateCartEntryQuantity}
+          productById={productById}
+          openProductConfigurator={openProductConfigurator}
+        />
+        <StorefrontFooter
+          storefrontName={storefrontName}
+          providerLocation={providerLocation}
+          publicPath={publicPath}
+          paymentSummary={paymentSummary}
+          visibleProductCount={visibleProductCount}
+          visiblePackCount={visiblePackCount}
+          mapAddress={mapAddress}
+        />
 
         {productPreview && previewedProduct ? (
           <div
@@ -2432,3 +1613,11 @@ export default function PublicStorefrontPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+

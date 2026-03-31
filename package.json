@@ -6,6 +6,7 @@
   "scripts": {
     "backup": "powershell -ExecutionPolicy Bypass -File .\\scripts\\create-backup.ps1",
     "restore:backup": "powershell -ExecutionPolicy Bypass -File .\\scripts\\restore-backup.ps1",
+    "seed:demo:provider": "node .\\scripts\\seed-demo-provider.mjs",
     "deploy:preview": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-preview.ps1",
     "dev": "concurrently -n backend,frontend -c yellow,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:frontend": "npm --prefix frontend run dev -- --port 3001",
