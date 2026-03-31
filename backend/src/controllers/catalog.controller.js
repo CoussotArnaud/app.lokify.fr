@@ -26,8 +26,8 @@ export const getCatalogCategories = asyncHandler(async (req, res) => {
 });
 
 export const postCatalogCategory = asyncHandler(async (req, res) => {
-  const category = await upsertCatalogCategory(req.user.id, req.body);
-  res.status(201).json({ category });
+  const result = await upsertCatalogCategory(req.user.id, req.body);
+  res.status(201).json(result);
 });
 
 export const removeCatalogCategory = asyncHandler(async (req, res) => {

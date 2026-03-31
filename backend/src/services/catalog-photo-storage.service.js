@@ -100,13 +100,36 @@ const optimizeCatalogImage = async (buffer, originalWidth, originalHeight) => {
   return bestResult;
 };
 
-const buildCatalogPhotoObjectKey = (itemId) => {
+const buildCatalogManagedImageObjectKey = (entityKind, entityId, assetKind = "default") => {
   const timestamp = Date.now();
   const randomSuffix = crypto.randomBytes(5).toString("hex");
-  return `products/${itemId}/${timestamp}-${randomSuffix}.webp`;
+  const normalizedEntityKind =
+    String(entityKind || "")
+      .trim()
+      .replace(/[^a-z0-9-]+/gi, "-")
+      .replace(/^-+|-+$/g, "") || "catalog";
+  const normalizedAssetKind =
+    String(assetKind || "")
+      .trim()
+      .replace(/[^a-z0-9-]+/gi, "-")
+      .replace(/^-+|-+$/g, "") || "default";
+
+  return `${normalizedEntityKind}/${entityId}/${normalizedAssetKind}-${timestamp}-${randomSuffix}.webp`;
 };
 
-export const uploadCatalogProductPhoto = async ({ itemId, payload = {} }) => {
+const uploadCatalogManagedImage = async ({
+  entityKind,
+  entityId,
+  assetKind = "default",
+  payload = {},
+  metadata = {},
+}) => {
+  if (!entityId) {
+    throw new HttpError(400, "L'image n'a pas pu etre rattachee a son element.", {
+      code: "catalog_image_missing_owner",
+    });
+  }
+
   const parsedImage = parseCatalogImagePayload(payload);
   const validatedImage = validateCatalogImageAsset(parsedImage);
   const optimizedImage = await optimizeCatalogImage(
@@ -114,7 +137,7 @@ export const uploadCatalogProductPhoto = async ({ itemId, payload = {} }) => {
     validatedImage.width,
     validatedImage.height
   );
-  const objectKey = buildCatalogPhotoObjectKey(itemId);
+  const objectKey = buildCatalogManagedImageObjectKey(entityKind, entityId, assetKind);
 
   try {
     const uploadResult = await uploadR2Object({
@@ -123,8 +146,9 @@ export const uploadCatalogProductPhoto = async ({ itemId, payload = {} }) => {
       contentType: optimizedImage.mimeType,
       cacheControl: "public, max-age=31536000, immutable",
       metadata: {
-        item_id: itemId,
+        entity_id: String(entityId),
         source_mime_type: validatedImage.mime_type,
+        ...metadata,
       },
     });
 
@@ -146,6 +170,33 @@ export const uploadCatalogProductPhoto = async ({ itemId, payload = {} }) => {
     });
   }
 };
+
+export const uploadCatalogProductPhoto = async ({ itemId, payload = {} }) =>
+  uploadCatalogManagedImage({
+    entityKind: "products",
+    entityId: itemId,
+    assetKind: "gallery",
+    payload,
+    metadata: {
+      item_id: String(itemId),
+    },
+  });
+
+export const uploadCatalogCategoryImage = async ({
+  categoryId,
+  imageKind = "thumbnail",
+  payload = {},
+}) =>
+  uploadCatalogManagedImage({
+    entityKind: "categories",
+    entityId: categoryId,
+    assetKind: imageKind,
+    payload,
+    metadata: {
+      category_id: String(categoryId),
+      image_kind: String(imageKind || "thumbnail"),
+    },
+  });
 
 export const isManagedCatalogPhotoUrl = (photoUrl) => isManagedR2PublicUrl(photoUrl);
 

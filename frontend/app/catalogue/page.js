@@ -36,18 +36,37 @@ const buildCategoryRows = (categories, products) => {
   categories.forEach((category) => {
     const id = String(category.slug || category.id || "").trim();
     if (!id) return;
-    map.set(id, { id, label: category.name || "Categorie", productCount: 0, isUncategorized: false });
+    map.set(id, {
+      id,
+      label: category.name || "Categorie",
+      productCount: 0,
+      isUncategorized: false,
+    });
   });
   products.forEach((product) => {
     const id = String(product.categorySlug || "").trim();
     if (!id) return;
-    if (!map.has(id)) map.set(id, { id, label: product.category || "Categorie", productCount: 0, isUncategorized: false });
+    if (!map.has(id)) {
+      map.set(id, {
+        id,
+        label: product.category || "Categorie",
+        productCount: 0,
+        isUncategorized: false,
+      });
+    }
   });
   const rows = Array.from(map.values())
     .map((category) => ({ ...category, productCount: products.filter((product) => String(product.categorySlug || "").trim() === category.id).length }))
     .sort((left, right) => sortByLabel(left.label, right.label));
   const uncategorizedCount = products.filter((product) => !String(product.categorySlug || "").trim()).length;
-  if (uncategorizedCount) rows.push({ id: UNCATEGORIZED_CATEGORY_ID, label: "Sans categorie", productCount: uncategorizedCount, isUncategorized: true });
+  if (uncategorizedCount) {
+    rows.push({
+      id: UNCATEGORIZED_CATEGORY_ID,
+      label: "Sans categorie",
+      productCount: uncategorizedCount,
+      isUncategorized: true,
+    });
+  }
   return rows;
 };
 

@@ -99,6 +99,11 @@ const createMemoryPool = async () => {
       ranges_json TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL DEFAULT 'active',
       source TEXT NOT NULL DEFAULT 'custom',
+      icon_name TEXT,
+      image_url TEXT,
+      image_alt_text TEXT,
+      banner_image_url TEXT,
+      images_json TEXT NOT NULL DEFAULT '[]',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT catalog_categories_slug_unique UNIQUE (user_id, slug)

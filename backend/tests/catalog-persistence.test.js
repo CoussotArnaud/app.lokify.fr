@@ -129,22 +129,25 @@ afterEach(() => {
 
 test("catalog categories are persisted and upserted by slug", async () => {
   const userId = await getDemoUserId();
-  const createdCategory = await upsertCatalogCategory(userId, {
+  const createdCategoryResult = await upsertCatalogCategory(userId, {
     name: "Location de tonnelles",
     type: "Evenementiel",
     filters: ["surface", "couleur"],
     durations: [{ label: "Journee", hours: 10 }],
     ranges: [{ label: "Week-end", minHours: 24, maxHours: 48 }],
   });
+  const createdCategory = createdCategoryResult.category;
 
   assert.equal(createdCategory.slug, "location-de-tonnelles");
   assert.deepEqual(createdCategory.filters, ["surface", "couleur"]);
+  assert.deepEqual(createdCategoryResult.imageUploadFailures, []);
 
-  const updatedCategory = await upsertCatalogCategory(userId, {
+  const updatedCategoryResult = await upsertCatalogCategory(userId, {
     name: "Location de tonnelles",
     type: "Evenementiel premium",
     filters: ["surface", "montage"],
   });
+  const updatedCategory = updatedCategoryResult.category;
 
   assert.equal(updatedCategory.slug, "location-de-tonnelles");
   assert.equal(updatedCategory.type, "Evenementiel premium");
@@ -154,6 +157,102 @@ test("catalog categories are persisted and upserted by slug", async () => {
 
   assert.ok(tonnelleCategory);
   assert.deepEqual(tonnelleCategory.filters, ["surface", "montage"]);
+});
+
+test("catalog category creation with image stores only a public R2 URL in base", async () => {
+  const userId = await getDemoUserId();
+  const imageDataUrl = await buildRealJpegDataUrl(1200, 900);
+  const result = await upsertCatalogCategory(userId, {
+    name: "Scenographie premium",
+    type: "Evenementiel",
+    image_alt_text: "Scenographie premium pour scene evenementielle",
+    image_uploads: [
+      {
+        data_url: imageDataUrl,
+        file_name: "scenographie-premium.jpg",
+        kind: "thumbnail",
+        alt_text: "Scenographie premium pour scene evenementielle",
+      },
+    ],
+  });
+
+  assert.equal(result.imageUploadFailures.length, 0);
+  assert.match(result.category.image_url, /^https:\/\/cdn\.lokify\.test\/categories\//);
+  assert.equal(result.category.images.length, 1);
+  assert.equal(result.category.images[0].url.startsWith("data:image/"), false);
+  assert.match(result.category.images[0].url, /^https:\/\/cdn\.lokify\.test\/categories\//);
+  assert.equal(result.category.images[0].kind, "thumbnail");
+  assert.equal(result.category.image_alt_text, "Scenographie premium pour scene evenementielle");
+
+  const { rows } = await query(
+    "SELECT image_url, images_json FROM catalog_categories WHERE user_id = $1 AND slug = $2",
+    [userId, "scenographie-premium"]
+  );
+  const persistedImages = JSON.parse(rows[0].images_json);
+
+  assert.match(rows[0].image_url, /^https:\/\/cdn\.lokify\.test\/categories\//);
+  assert.equal(persistedImages.length, 1);
+  assert.equal(String(persistedImages[0].url || "").startsWith("data:image/"), false);
+  assert.match(persistedImages[0].url, /^https:\/\/cdn\.lokify\.test\/categories\//);
+});
+
+test("catalog category update replaces and deletes unused managed images", async () => {
+  const userId = await getDemoUserId();
+  const createdCategory = await upsertCatalogCategory(userId, {
+    name: "Decoration scenique",
+    image_alt_text: "Version initiale",
+    image_uploads: [
+      {
+        data_url: await buildRealJpegDataUrl(1200, 900),
+        file_name: "decoration-scene.jpg",
+        kind: "thumbnail",
+        alt_text: "Version initiale",
+      },
+    ],
+  });
+  const previousImageUrl = createdCategory.category.image_url;
+
+  const updatedCategory = await upsertCatalogCategory(userId, {
+    original_slug: createdCategory.category.slug,
+    slug: createdCategory.category.slug,
+    name: "Decoration scenique",
+    image_alt_text: "Version remplacee",
+    images: [],
+    image_uploads: [
+      {
+        data_url: await buildRealJpegDataUrl(1280, 960),
+        file_name: "decoration-scene-v2.jpg",
+        kind: "thumbnail",
+        alt_text: "Version remplacee",
+      },
+    ],
+  });
+
+  assert.equal(updatedCategory.imageUploadFailures.length, 0);
+  assert.notEqual(updatedCategory.category.image_url, previousImageUrl);
+  assert.deepEqual(deletedObjectKeys, [extractManagedObjectKey(previousImageUrl)]);
+});
+
+test("catalog category creation keeps the category when image upload fails", async () => {
+  const userId = await getDemoUserId();
+  failUploads = true;
+
+  const result = await upsertCatalogCategory(userId, {
+    name: "Structure temporaire",
+    type: "Evenementiel",
+    image_uploads: [
+      {
+        data_url: await buildRealJpegDataUrl(1200, 900),
+        file_name: "structure-temporaire.jpg",
+        kind: "thumbnail",
+      },
+    ],
+  });
+
+  assert.equal(result.imageUploadFailures.length, 1);
+  assert.equal(result.category.slug, "structure-temporaire");
+  assert.equal(result.category.image_url, "");
+  assert.deepEqual(result.category.images, []);
 });
 
 test("item profiles are persisted independently from base items", async () => {
