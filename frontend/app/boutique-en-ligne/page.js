@@ -79,7 +79,12 @@ export default function ProviderStorefrontRedirectPage() {
 
         <div className="row-actions">
           {destination ? (
-            <Link href={destination} className="button primary">
+            <Link
+              href={destination}
+              className="button primary"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               Ouvrir ma boutique
             </Link>
           ) : null}

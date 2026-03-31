@@ -74,7 +74,14 @@ export default function WorkspaceHeader() {
             </summary>
             <div className="user-popover">
               {accountMenuItems.map((item) => (
-                <Link key={item.id} href={item.href} className="user-popover-link">
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className="user-popover-link"
+                  target={item.target}
+                  rel={item.rel}
+                  prefetch={item.target === "_blank" ? false : undefined}
+                >
                   <Icon name={item.icon} size={14} />
                   <span>{item.label}</span>
                 </Link>

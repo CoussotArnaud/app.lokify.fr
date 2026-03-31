@@ -115,6 +115,8 @@ const providerAccountMenuItems = [
     label: "Boutique en ligne",
     href: "/boutique-en-ligne",
     icon: "shop",
+    target: "_blank",
+    rel: "noopener noreferrer",
   },
   {
     id: "invoices",
