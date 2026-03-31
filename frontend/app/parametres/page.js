@@ -33,6 +33,10 @@ const initialStorefrontForm = {
   slug: "",
   is_published: false,
   reservation_approval_mode: "manual",
+  map_enabled: false,
+  map_address: "",
+  reviews_enabled: false,
+  reviews_url: "",
 };
 
 const initialAccountForm = {
@@ -204,6 +208,10 @@ function SettingsPageContent() {
           is_published: Boolean(storefrontResponse.storefrontSettings?.is_published),
           reservation_approval_mode:
             storefrontResponse.storefrontSettings?.reservation_approval_mode || "manual",
+          map_enabled: Boolean(storefrontResponse.storefrontSettings?.map_enabled),
+          map_address: storefrontResponse.storefrontSettings?.map_address || "",
+          reviews_enabled: Boolean(storefrontResponse.storefrontSettings?.reviews_enabled),
+          reviews_url: storefrontResponse.storefrontSettings?.reviews_url || "",
         });
       }
     } catch (error) {
@@ -509,6 +517,10 @@ function SettingsPageContent() {
         is_published: Boolean(response.storefrontSettings?.is_published),
         reservation_approval_mode:
           response.storefrontSettings?.reservation_approval_mode || "manual",
+        map_enabled: Boolean(response.storefrontSettings?.map_enabled),
+        map_address: response.storefrontSettings?.map_address || "",
+        reviews_enabled: Boolean(response.storefrontSettings?.reviews_enabled),
+        reviews_url: response.storefrontSettings?.reviews_url || "",
       });
       setFeedback({
         type: "success",
@@ -1163,6 +1175,22 @@ function SettingsPageContent() {
                   <strong>Lien public</strong>
                   <span className="muted-text">{storefrontPath || "Indisponible"}</span>
                 </article>
+                <article className="detail-card">
+                  <strong>Carte</strong>
+                  <span className="muted-text">
+                    {storefrontSettings?.map_enabled
+                      ? storefrontSettings?.map_address || "Activee sans adresse"
+                      : "Masquee"}
+                  </span>
+                </article>
+                <article className="detail-card">
+                  <strong>Avis Google</strong>
+                  <span className="muted-text">
+                    {storefrontSettings?.reviews_enabled
+                      ? storefrontSettings?.reviews_url || "Actives sans lien"
+                      : "Masques"}
+                  </span>
+                </article>
               </div>
 
               <form className="form-grid" onSubmit={handleStorefrontSave}>
@@ -1219,6 +1247,70 @@ function SettingsPageContent() {
                   />
                   <span>Activer la boutique en ligne</span>
                 </label>
+
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={storefrontForm.map_enabled}
+                    onChange={(event) =>
+                      setStorefrontForm((current) => ({
+                        ...current,
+                        map_enabled: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Afficher la carte et l&apos;adresse</span>
+                </label>
+
+                <div className="field">
+                  <label htmlFor="storefront-map-address">Adresse pour la carte</label>
+                  <input
+                    id="storefront-map-address"
+                    value={storefrontForm.map_address}
+                    onChange={(event) =>
+                      setStorefrontForm((current) => ({
+                        ...current,
+                        map_address: event.target.value,
+                      }))
+                    }
+                    placeholder="12 rue exemple, 75000 Paris"
+                  />
+                  <p className="field-hint">
+                    Utilisee dans le bloc emplacement de la boutique publique.
+                  </p>
+                </div>
+
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={storefrontForm.reviews_enabled}
+                    onChange={(event) =>
+                      setStorefrontForm((current) => ({
+                        ...current,
+                        reviews_enabled: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Afficher les avis Google</span>
+                </label>
+
+                <div className="field">
+                  <label htmlFor="storefront-reviews-url">Lien Google avis</label>
+                  <input
+                    id="storefront-reviews-url"
+                    value={storefrontForm.reviews_url}
+                    onChange={(event) =>
+                      setStorefrontForm((current) => ({
+                        ...current,
+                        reviews_url: event.target.value,
+                      }))
+                    }
+                    placeholder="https://g.page/r/..."
+                  />
+                  <p className="field-hint">
+                    Utilise pour le bouton et la redirection de la section avis.
+                  </p>
+                </div>
 
                 <div className="row-actions">
                   <button type="submit" className="button primary" disabled={savingStorefront}>

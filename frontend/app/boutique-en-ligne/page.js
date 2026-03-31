@@ -23,7 +23,7 @@ export default function ProviderStorefrontRedirectPage() {
 
     let cancelled = false;
 
-    const openPreview = async () => {
+    const openStorefront = async () => {
       try {
         const response = await apiRequest("/storefront/settings");
         const slug = String(response.storefrontSettings?.slug || "").trim();
@@ -34,7 +34,7 @@ export default function ProviderStorefrontRedirectPage() {
           );
         }
 
-        const nextDestination = `${buildStorefrontPath(slug)}?preview=1`;
+        const nextDestination = buildStorefrontPath(slug);
 
         if (cancelled) {
           return;
@@ -47,11 +47,11 @@ export default function ProviderStorefrontRedirectPage() {
           return;
         }
 
-        setError(nextError.message || "Impossible d'ouvrir l'apercu de la boutique.");
+        setError(nextError.message || "Impossible d'ouvrir la boutique en ligne.");
       }
     };
 
-    void openPreview();
+    void openStorefront();
 
     return () => {
       cancelled = true;
@@ -65,22 +65,22 @@ export default function ProviderStorefrontRedirectPage() {
         description={
           error
             ? "La redirection automatique n'a pas pu etre finalisee."
-            : "Redirection automatique vers la vraie boutique en ligne en mode apercu."
+            : "Redirection automatique vers votre vraie boutique en ligne."
         }
       >
         <div className="empty-state">
-          <strong>{error ? "Apercu indisponible" : "Ouverture en cours..."}</strong>
+          <strong>{error ? "Boutique indisponible" : "Ouverture en cours..."}</strong>
           <span>
             {error
               ? error
-              : "Votre ancienne page intermediaire n'est plus utilisee. Vous allez etre redirige vers la vraie boutique publique."}
+              : "La page intermediaire n'est plus utilisee. Vous allez etre redirige vers la vraie boutique publique."}
           </span>
         </div>
 
         <div className="row-actions">
           {destination ? (
             <Link href={destination} className="button primary">
-              Ouvrir l'apercu
+              Ouvrir ma boutique
             </Link>
           ) : null}
           <Link href="/parametres?section=storefront" className="button ghost">

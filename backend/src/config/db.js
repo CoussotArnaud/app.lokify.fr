@@ -129,6 +129,7 @@ const createMemoryPool = async () => {
       price_week NUMERIC(10, 2) NOT NULL DEFAULT 0,
       custom_price_note TEXT,
       online_visible BOOLEAN NOT NULL DEFAULT FALSE,
+      is_featured BOOLEAN NOT NULL DEFAULT FALSE,
       public_name TEXT,
       public_description TEXT,
       photos_json TEXT NOT NULL DEFAULT '[]',
@@ -146,6 +147,10 @@ const createMemoryPool = async () => {
       slug TEXT NOT NULL UNIQUE,
       is_published BOOLEAN NOT NULL DEFAULT FALSE,
       reservation_approval_mode TEXT NOT NULL DEFAULT 'manual',
+      map_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      map_address TEXT,
+      reviews_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      reviews_url TEXT,
       slug_updated_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -828,6 +833,7 @@ const createMemoryPool = async () => {
         price_weekend,
         price_week,
         online_visible,
+        is_featured,
         public_name,
         public_description,
         catalog_mode,
@@ -836,9 +842,9 @@ const createMemoryPool = async () => {
         updated_at
       )
       VALUES
-        ($1, $2, 20, TRUE, 'animation-photo', 'Animation photo', 490, 1490, TRUE, 'Photobooth Premium', 'Borne photo premium prete a etre reservee en ligne.', 'location', 'REF-PHOTO-PREMIUM', $3, $3),
-        ($4, $2, 20, FALSE, 'video-scene', 'Video & scene', 690, 1990, TRUE, 'Videobooth 360', 'Experience video immersive pour activations premium.', 'location', 'REF-VIDEO-360', $5, $5),
-        ($6, $2, 20, FALSE, 'mobilite-evenementielle', 'Mobilite evenementielle', 85, 250, FALSE, 'Trottinette Electrique', 'Solution de mobilite pour circulation sur site.', 'location', 'REF-MOBILITE-TROT', $7, $7)
+        ($1, $2, 20, TRUE, 'animation-photo', 'Animation photo', 490, 1490, TRUE, TRUE, 'Photobooth Premium', 'Borne photo premium prete a etre reservee en ligne.', 'location', 'REF-PHOTO-PREMIUM', $3, $3),
+        ($4, $2, 20, FALSE, 'video-scene', 'Video & scene', 690, 1990, TRUE, TRUE, 'Videobooth 360', 'Experience video immersive pour activations premium.', 'location', 'REF-VIDEO-360', $5, $5),
+        ($6, $2, 20, FALSE, 'mobilite-evenementielle', 'Mobilite evenementielle', 85, 250, FALSE, FALSE, 'Trottinette Electrique', 'Solution de mobilite pour circulation sur site.', 'location', 'REF-MOBILITE-TROT', $7, $7)
     `,
     [
       photoboothId,

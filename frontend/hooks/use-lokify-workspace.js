@@ -586,6 +586,7 @@ export default function useLokifyWorkspace() {
       thumbnail: profile.photos?.[0] || "",
       catalog_mode: profile.catalog_mode || "location",
       online_visible: Boolean(profile.online_visible),
+      is_featured: Boolean(profile.is_featured),
       reservable: profile.reservable ?? true,
       vat: profile.vat ?? null,
       tax_rate_id: profile.tax_rate_id || "",

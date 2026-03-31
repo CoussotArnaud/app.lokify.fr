@@ -1,0 +1,14 @@
+ALTER TABLE storefront_settings
+ADD COLUMN IF NOT EXISTS map_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE storefront_settings
+ADD COLUMN IF NOT EXISTS map_address TEXT;
+
+ALTER TABLE storefront_settings
+ADD COLUMN IF NOT EXISTS reviews_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE storefront_settings
+ADD COLUMN IF NOT EXISTS reviews_url TEXT;
+
+ALTER TABLE item_profiles
+ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;

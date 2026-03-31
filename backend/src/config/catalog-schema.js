@@ -50,6 +50,7 @@ export const ensureCatalogSchema = async (pool) => {
     "ALTER TABLE item_profiles ADD COLUMN IF NOT EXISTS price_custom_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE item_profiles ADD COLUMN IF NOT EXISTS options_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE item_profiles ADD COLUMN IF NOT EXISTS variants_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE item_profiles ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE item_profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE item_profiles ADD COLUMN IF NOT EXISTS reservable BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE item_profiles ALTER COLUMN vat DROP DEFAULT",

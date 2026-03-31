@@ -398,6 +398,7 @@ const serializeItemProfile = (row) => {
           : null,
     },
     online_visible: Boolean(row.online_visible),
+    is_featured: Boolean(row.is_featured),
     is_active: row.is_active === undefined ? true : Boolean(row.is_active),
     reservable: row.reservable === undefined ? true : Boolean(row.reservable),
     public_name: row.public_name || "",
@@ -1518,6 +1519,7 @@ const normalizeItemProfilePayload = (payload = {}, item = null) => {
       amount: customPriceAmount,
     },
     online_visible: Boolean(payload.online_visible ?? payload.onlineVisible),
+    is_featured: Boolean(payload.is_featured ?? payload.isFeatured),
     is_active: payload.is_active ?? payload.isActive ?? true,
     reservable: payload.reservable ?? true,
     public_name:
@@ -1607,19 +1609,20 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
             price_week = $18,
             price_custom_json = $19,
             online_visible = $20,
-            is_active = $21,
-            reservable = $22,
-            public_name = $23,
-            public_description = $24,
-            long_description = $25,
-            photos_json = $26,
-            related_enabled = $27,
-            related_product_ids_json = $28,
-            related_sort_note = $29,
-            catalog_mode = $30,
-            sku = $31,
-            options_json = $32,
-            variants_json = $33
+            is_featured = $21,
+            is_active = $22,
+            reservable = $23,
+            public_name = $24,
+            public_description = $25,
+            long_description = $26,
+            photos_json = $27,
+            related_enabled = $28,
+            related_product_ids_json = $29,
+            related_sort_note = $30,
+            catalog_mode = $31,
+            sku = $32,
+            options_json = $33,
+            variants_json = $34
         WHERE item_id = $1 AND user_id = $2
         RETURNING *
       `,
@@ -1644,6 +1647,7 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
         profile.price_week,
         JSON.stringify(profile.price_custom),
         profile.online_visible,
+        profile.is_featured,
         Boolean(profile.is_active),
         Boolean(profile.reservable),
         profile.public_name,
@@ -1686,6 +1690,7 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
         price_week,
         price_custom_json,
         online_visible,
+        is_featured,
         is_active,
         reservable,
         public_name,
@@ -1703,7 +1708,7 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
       VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
         $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-        $31, $32, $33
+        $31, $32, $33, $34
       )
       RETURNING *
     `,
@@ -1728,6 +1733,7 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
       profile.price_week,
       JSON.stringify(profile.price_custom),
       profile.online_visible,
+      profile.is_featured,
       Boolean(profile.is_active),
       Boolean(profile.reservable),
       profile.public_name,

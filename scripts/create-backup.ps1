@@ -164,7 +164,19 @@ Get-ChildItem -LiteralPath $backupRoot -Directory |
   Sort-Object LastWriteTime -Descending |
   Select-Object -Skip 5 |
   ForEach-Object {
-    Remove-Item -LiteralPath $_.FullName -Recurse -Force
+    $oldBackupPathProperty = $_.PSObject.Properties["FullName"]
+
+    if ($null -eq $oldBackupPathProperty -or [string]::IsNullOrWhiteSpace([string]$oldBackupPathProperty.Value)) {
+      return
+    }
+
+    $oldBackupPath = [string]$oldBackupPathProperty.Value
+
+    try {
+      Remove-Item -LiteralPath $oldBackupPath -Recurse -Force
+    } catch {
+      Write-Warning "Impossible de supprimer l'ancienne sauvegarde '$oldBackupPath': $($_.Exception.Message)"
+    }
   }
 
 Get-ChildItem -LiteralPath $backupRoot -Directory |

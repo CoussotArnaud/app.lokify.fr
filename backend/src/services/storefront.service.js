@@ -3,7 +3,7 @@ import crypto from "crypto";
 import env from "../config/env.js";
 import { query } from "../config/db.js";
 import HttpError from "../utils/http-error.js";
-import { listCatalogPacks, listItemProfiles } from "./catalog.service.js";
+import { listCatalogCategories, listCatalogPacks, listItemProfiles } from "./catalog.service.js";
 import { createClient, restoreClient } from "./clients.service.js";
 import {
   getCustomerPaymentSettings,
@@ -33,6 +33,14 @@ const normalizeWhitespace = (value) =>
     .trim();
 
 const normalizeEmail = (value) => normalizeWhitespace(value).toLowerCase();
+const normalizeOptionalStorefrontText = (value) => {
+  const normalizedValue = normalizeWhitespace(value);
+  return normalizedValue || null;
+};
+const normalizeOptionalStorefrontUrl = (value) => {
+  const normalizedValue = String(value ?? "").trim();
+  return normalizedValue || null;
+};
 
 const normalizePhone = (value) => {
   const digitsOnly = normalizeWhitespace(value).replace(/\D/g, "");
@@ -292,6 +300,10 @@ const serializeStorefrontSettings = (row) => ({
     row.reservation_approval_mode && allowedStorefrontApprovalModes.has(row.reservation_approval_mode)
       ? row.reservation_approval_mode
       : "manual",
+  map_enabled: Boolean(row.map_enabled),
+  map_address: row.map_address || "",
+  reviews_enabled: Boolean(row.reviews_enabled),
+  reviews_url: row.reviews_url || "",
   slug_updated_at: row.slug_updated_at || null,
   created_at: row.created_at || null,
   updated_at: row.updated_at || null,
@@ -415,17 +427,21 @@ export const ensureStorefrontSettingsRecord = async (userId) => {
 
   const { rows } = await query(
     `
-      INSERT INTO storefront_settings (
-        user_id,
-        slug,
-        is_published,
-        reservation_approval_mode,
-        slug_updated_at
-      )
-      VALUES ($1, $2, FALSE, 'manual', NULL)
-      ON CONFLICT (user_id) DO UPDATE
-      SET updated_at = storefront_settings.updated_at
-      RETURNING *
+        INSERT INTO storefront_settings (
+          user_id,
+          slug,
+          is_published,
+          reservation_approval_mode,
+          map_enabled,
+          map_address,
+          reviews_enabled,
+          reviews_url,
+          slug_updated_at
+        )
+        VALUES ($1, $2, FALSE, 'manual', FALSE, NULL, FALSE, NULL, NULL)
+        ON CONFLICT (user_id) DO UPDATE
+        SET updated_at = storefront_settings.updated_at
+        RETURNING *
     `,
     [userId, slug]
   );
@@ -444,6 +460,10 @@ export const updateStorefrontSettings = async (userId, payload = {}) => {
     payload,
     "reservation_approval_mode"
   );
+  const payloadHasMapEnabled = Object.prototype.hasOwnProperty.call(payload, "map_enabled");
+  const payloadHasMapAddress = Object.prototype.hasOwnProperty.call(payload, "map_address");
+  const payloadHasReviewsEnabled = Object.prototype.hasOwnProperty.call(payload, "reviews_enabled");
+  const payloadHasReviewsUrl = Object.prototype.hasOwnProperty.call(payload, "reviews_url");
 
   let nextSlug = currentSlug;
   let nextSlugUpdatedAt = currentSettings.slug_updated_at;
@@ -477,6 +497,18 @@ export const updateStorefrontSettings = async (userId, payload = {}) => {
   const nextApprovalMode = payloadHasApprovalMode
     ? String(payload.reservation_approval_mode || "").trim().toLowerCase()
     : currentSettings.reservation_approval_mode;
+  const nextMapEnabled = payloadHasMapEnabled
+    ? Boolean(payload.map_enabled)
+    : currentSettings.map_enabled;
+  const nextMapAddress = payloadHasMapAddress
+    ? normalizeOptionalStorefrontText(payload.map_address)
+    : normalizeOptionalStorefrontText(currentSettings.map_address);
+  const nextReviewsEnabled = payloadHasReviewsEnabled
+    ? Boolean(payload.reviews_enabled)
+    : currentSettings.reviews_enabled;
+  const nextReviewsUrl = payloadHasReviewsUrl
+    ? normalizeOptionalStorefrontUrl(payload.reviews_url)
+    : normalizeOptionalStorefrontUrl(currentSettings.reviews_url);
 
   if (!allowedStorefrontApprovalModes.has(nextApprovalMode)) {
     throw new HttpError(400, "Le mode de validation boutique est invalide.");
@@ -488,11 +520,25 @@ export const updateStorefrontSettings = async (userId, payload = {}) => {
       SET slug = $2,
           is_published = $3,
           reservation_approval_mode = $4,
-          slug_updated_at = $5
+          slug_updated_at = $5,
+          map_enabled = $6,
+          map_address = $7,
+          reviews_enabled = $8,
+          reviews_url = $9
       WHERE user_id = $1
       RETURNING *
     `,
-    [userId, nextSlug, nextPublished, nextApprovalMode, nextSlugUpdatedAt]
+    [
+      userId,
+      nextSlug,
+      nextPublished,
+      nextApprovalMode,
+      nextSlugUpdatedAt,
+      nextMapEnabled,
+      nextMapAddress,
+      nextReviewsEnabled,
+      nextReviewsUrl,
+    ]
   );
 
   return serializeStorefrontSettings(rows[0]);
@@ -668,6 +714,7 @@ const buildVisibleStorefrontProducts = ({ items, itemProfiles, planning }) => {
           profile.public_description || "Produit disponible en reservation en ligne.",
         long_description: profile.long_description || profile.public_description || "",
         category: profile.category_name || item.category || "Catalogue",
+        category_slug: profile.category_slug || "",
         sku: profile.sku || `REF-${item.id.slice(0, 6).toUpperCase()}`,
         thumbnail: photos[0] || "",
         photos,
@@ -686,10 +733,65 @@ const buildVisibleStorefrontProducts = ({ items, itemProfiles, planning }) => {
         blocked_units: availability.blocked_units,
         is_active: isProfileActive,
         reservable: isReservable,
+        is_featured: Boolean(profile?.is_featured),
       };
     })
     .filter(Boolean)
     .sort((left, right) => left.public_name.localeCompare(right.public_name, "fr"));
+};
+
+const buildStorefrontCategories = ({ products, catalogCategories = [] }) => {
+  const categoryRecordBySlug = new Map(
+    (Array.isArray(catalogCategories) ? catalogCategories : [])
+      .filter((category) => category?.slug || category?.name)
+      .map((category) => [category.slug || normalizeStorefrontSlug(category.name), category])
+  );
+  const categoryBuckets = new Map();
+
+  products.forEach((product) => {
+    const slug =
+      normalizeWhitespace(product.category_slug || "") ||
+      normalizeStorefrontSlug(product.category || "catalogue");
+    const label = normalizeWhitespace(product.category || "Catalogue") || "Catalogue";
+    const existingBucket = categoryBuckets.get(slug) || {
+      slug,
+      name: label,
+      products: [],
+    };
+
+    existingBucket.products.push(product);
+    categoryBuckets.set(slug, existingBucket);
+  });
+
+  return Array.from(categoryBuckets.values())
+    .map((bucket) => {
+      const categoryRecord = categoryRecordBySlug.get(bucket.slug) || null;
+      const sortedProducts = [...bucket.products].sort(
+        (left, right) => Number(left.price || 0) - Number(right.price || 0)
+      );
+      const firstProduct = sortedProducts[0] || null;
+      const imageUrl =
+        categoryRecord?.image_url ||
+        categoryRecord?.logo_image_url ||
+        categoryRecord?.banner_image_url ||
+        firstProduct?.thumbnail ||
+        "";
+
+      return {
+        slug: bucket.slug,
+        name: bucket.name,
+        description:
+          categoryRecord?.description ||
+          `Retrouvez ${bucket.products.length} produit(s) dans la categorie ${bucket.name}.`,
+        image_url: imageUrl,
+        image_alt_text:
+          categoryRecord?.image_alt_text ||
+          (bucket.name ? `Categorie ${bucket.name}` : "Categorie boutique"),
+        product_count: bucket.products.length,
+        starting_price: firstProduct ? toNumber(firstProduct.price) : 0,
+      };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, "fr"));
 };
 
 const buildVisibleStorefrontPacks = ({ catalogPacks, products }) => {
@@ -778,16 +880,17 @@ const buildStorefrontPayload = async (
   userId,
   { start, end, storefrontSettings = null, storefrontOwner = null } = {}
 ) => {
-  const [settings, owner, planning, items, itemProfiles, catalogPacks, onlinePayment] =
+  const [settings, owner, planning, items, itemProfiles, catalogPacks, catalogCategories, onlinePayment] =
     await Promise.all([
-    storefrontSettings || ensureStorefrontSettingsRecord(userId),
-    storefrontOwner || getStorefrontOwnerRow(userId).then(serializeStorefrontOwner),
-    getPlanning(userId, { start, end }),
-    listItems(userId),
-    listItemProfiles(userId),
-    listCatalogPacks(userId),
-    buildStorefrontPaymentSummary(userId),
-  ]);
+      storefrontSettings || ensureStorefrontSettingsRecord(userId),
+      storefrontOwner || getStorefrontOwnerRow(userId).then(serializeStorefrontOwner),
+      getPlanning(userId, { start, end }),
+      listItems(userId),
+      listItemProfiles(userId),
+      listCatalogPacks(userId),
+      listCatalogCategories(userId).catch(() => []),
+      buildStorefrontPaymentSummary(userId),
+    ]);
 
   const products = buildVisibleStorefrontProducts({
     items,
@@ -798,7 +901,11 @@ const buildStorefrontPayload = async (
     catalogPacks,
     products,
   });
-  const categories = [...new Set(products.map((product) => product.category).filter(Boolean))];
+  const categories = buildStorefrontCategories({
+    products,
+    catalogCategories,
+  });
+  const featuredProducts = products.filter((product) => product.is_featured).slice(0, 6);
 
   return {
     storefront: {
@@ -806,13 +913,21 @@ const buildStorefrontPayload = async (
       is_published: settings.is_published,
       reservation_approval_mode: settings.reservation_approval_mode,
       display_name: owner.display_name,
+      company_name: owner.company_name || "",
+      commercial_name: owner.commercial_name || "",
+      full_name: owner.full_name || "",
       city: owner.city || "",
+      map_enabled: settings.map_enabled,
+      map_address: settings.map_address || "",
+      reviews_enabled: settings.reviews_enabled,
+      reviews_url: settings.reviews_url || "",
       path: `/shop/${settings.slug}`,
     },
     start: planning.start,
     end: planning.end,
     generated_at: planning.generated_at,
     categories,
+    featured_products: featuredProducts,
     products,
     packs,
     summary: {

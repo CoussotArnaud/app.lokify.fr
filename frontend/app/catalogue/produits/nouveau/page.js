@@ -70,6 +70,7 @@ const buildEmptyForm = (defaultTaxRateId = "") => ({
   internal_description: "",
   is_active: true,
   online_visible: false,
+  is_featured: false,
   reservable: true,
   catalog_mode: "location",
   photos: [],
@@ -119,6 +120,7 @@ const buildFormFromProduct = (product, defaultTaxRateId = "") => {
     internal_description: product.profile?.internal_description || "",
     is_active: product.isActive,
     online_visible: Boolean(product.online_visible),
+    is_featured: Boolean(product.is_featured ?? product.profile?.is_featured),
     reservable: product.reservable ?? true,
     catalog_mode: product.catalog_mode || "location",
     photos: Array.isArray(product.profile?.photos) ? product.profile.photos : [],
@@ -167,6 +169,7 @@ const buildItemProfilePayload = (form, selectedCategory, normalizedTaxRateId) =>
     amount: form.price_custom_amount === "" ? null : Number(form.price_custom_amount),
   },
   online_visible: form.online_visible,
+  is_featured: form.is_featured,
   is_active: form.is_active,
   reservable: form.reservable,
   public_name: form.public_name || form.name,
@@ -1160,6 +1163,20 @@ function ProductEditorPageContent() {
                             onChange={(event) => setValue("online_visible", event.target.checked)}
                           />
                           <span className="muted-text">Active la fiche cote boutique lorsque vous le souhaitez.</span>
+                        </div>
+                      </label>
+
+                      <label className="detail-card">
+                        <strong>Ajouter aux produits phares</strong>
+                        <div className="row-actions">
+                          <input
+                            type="checkbox"
+                            checked={form.is_featured}
+                            onChange={(event) => setValue("is_featured", event.target.checked)}
+                          />
+                          <span className="muted-text">
+                            Affiche le produit dans la section premium de la boutique publique.
+                          </span>
                         </div>
                       </label>
 
