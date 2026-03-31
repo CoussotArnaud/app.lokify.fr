@@ -153,6 +153,7 @@ export default function PublicStorefrontPage() {
   const [isFinalizingCheckout, setIsFinalizingCheckout] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [productConfigurator, setProductConfigurator] = useState(null);
+  const [productPreview, setProductPreview] = useState(null);
   const [visibleProductLimit, setVisibleProductLimit] = useState(initialVisibleProductCount);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [draftReady, setDraftReady] = useState(false);
@@ -356,7 +357,8 @@ export default function PublicStorefrontPage() {
   };
 
   useEffect(() => {
-    const hasOpenModal = isCheckoutModalOpen || Boolean(productConfigurator);
+    const hasOpenModal =
+      isCheckoutModalOpen || Boolean(productConfigurator) || Boolean(productPreview);
 
     if (!hasOpenModal) {
       return undefined;
@@ -367,6 +369,7 @@ export default function PublicStorefrontPage() {
       if (event.key === "Escape" && !isSubmitting && !isFinalizingCheckout) {
         setIsCheckoutModalOpen(false);
         setProductConfigurator(null);
+        setProductPreview(null);
       }
     };
 
@@ -377,7 +380,7 @@ export default function PublicStorefrontPage() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isCheckoutModalOpen, productConfigurator, isFinalizingCheckout, isSubmitting]);
+  }, [isCheckoutModalOpen, productConfigurator, productPreview, isFinalizingCheckout, isSubmitting]);
 
   useEffect(() => {
     if (!checkoutStatus) {
@@ -661,6 +664,19 @@ export default function PublicStorefrontPage() {
   const visibleProducts = products.slice(0, visibleProductLimit);
   const showLoadMoreProducts = products.length > visibleProductLimit;
   const configuratorProduct = productConfigurator ? productById.get(productConfigurator.item_id) || null : null;
+  const previewedProduct = productPreview ? productById.get(productPreview.item_id) || null : null;
+  const previewPhotos = previewedProduct
+    ? Array.isArray(previewedProduct.photos) && previewedProduct.photos.length
+      ? previewedProduct.photos
+      : previewedProduct.thumbnail
+        ? [previewedProduct.thumbnail]
+        : []
+    : [];
+  const activePreviewPhotoIndex =
+    productPreview && previewPhotos.length
+      ? Math.min(productPreview.activePhotoIndex || 0, previewPhotos.length - 1)
+      : 0;
+  const activePreviewPhoto = previewPhotos[activePreviewPhotoIndex] || "";
 
   const resetMessages = () => {
     setSubmitError("");
@@ -732,6 +748,7 @@ export default function PublicStorefrontPage() {
   };
 
   const openProductConfigurator = (product, cartEntry = null) => {
+    setProductPreview(null);
     const requiredOptionIds = (Array.isArray(product.options) ? product.options : [])
       .filter((option) => option.required)
       .map((option) => option.id);
@@ -797,6 +814,8 @@ export default function PublicStorefrontPage() {
       return;
     }
 
+    setProductPreview(null);
+
     if (Array.isArray(product.options) && product.options.length) {
       openProductConfigurator(product);
       return;
@@ -809,6 +828,33 @@ export default function PublicStorefrontPage() {
       option_ids: [],
     });
     resetMessages();
+  };
+
+  const openProductPreview = (product, activePhotoIndex = 0) => {
+    setProductPreview({
+      item_id: product.id,
+      activePhotoIndex,
+    });
+    resetMessages();
+  };
+
+  const closeProductPreview = () => {
+    if (isSubmitting || isFinalizingCheckout) {
+      return;
+    }
+
+    setProductPreview(null);
+  };
+
+  const setPreviewPhotoIndex = (nextIndex) => {
+    setProductPreview((currentPreview) =>
+      currentPreview
+        ? {
+            ...currentPreview,
+            activePhotoIndex: nextIndex,
+          }
+        : currentPreview
+    );
   };
 
   const addPackToCart = (pack) => {
@@ -1074,11 +1120,18 @@ export default function PublicStorefrontPage() {
                         <article key={product.id} className="public-shop-product-card">
                           <div className="public-shop-product-visual">
                             {product.thumbnail ? (
-                              <img
-                                src={product.thumbnail}
-                                alt={product.public_name}
-                                className="public-shop-product-media"
-                              />
+                              <button
+                                type="button"
+                                className="public-shop-product-media-button"
+                                onClick={() => openProductPreview(product)}
+                                aria-label={`Voir la fiche produit ${product.public_name}`}
+                              >
+                                <img
+                                  src={product.thumbnail}
+                                  alt={product.public_name}
+                                  className="public-shop-product-media"
+                                />
+                              </button>
                             ) : (
                               <div className="public-shop-product-placeholder" aria-hidden="true">
                                 <span>{product.public_name.slice(0, 1).toUpperCase()}</span>
@@ -1122,28 +1175,31 @@ export default function PublicStorefrontPage() {
                               ) : null}
                             </div>
 
-                            {product.long_description ? (
-                              <p className="public-shop-product-long-description">
-                                {product.long_description}
-                              </p>
-                            ) : null}
-
                             <div className="public-shop-product-card-foot">
                               <div className="public-shop-availability-copy">
                                 <strong>{availabilityLabel}</strong>
                                 <span>{product.available_quantity} unite(s) disponibles</span>
                               </div>
 
-                              <button
-                                type="button"
-                                className={`button ${
-                                  product.available_quantity > 0 ? "ghost" : "subtle"
-                                }`}
-                                onClick={() => addProductToCart(product)}
-                                disabled={product.available_quantity <= 0}
-                              >
-                                {hasOptions ? "Configurer" : "Ajouter"}
-                              </button>
+                              <div className="row-actions public-shop-product-card-actions">
+                                <button
+                                  type="button"
+                                  className="button subtle"
+                                  onClick={() => openProductPreview(product)}
+                                >
+                                  Voir la fiche
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`button ${
+                                    product.available_quantity > 0 ? "ghost" : "subtle"
+                                  }`}
+                                  onClick={() => addProductToCart(product)}
+                                  disabled={product.available_quantity <= 0}
+                                >
+                                  {hasOptions ? "Configurer" : "Ajouter"}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </article>
@@ -1514,6 +1570,183 @@ export default function PublicStorefrontPage() {
             </div>
           </aside>
         </section>
+
+        {productPreview && previewedProduct ? (
+          <div
+            className="public-shop-modal-backdrop"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                closeProductPreview();
+              }
+            }}
+          >
+            <section
+              className="public-shop-modal public-shop-product-preview-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="public-shop-product-preview-title"
+            >
+              <div className="public-shop-modal-header">
+                <div>
+                  <p className="eyebrow">Fiche produit</p>
+                  <h2 id="public-shop-product-preview-title">{previewedProduct.public_name}</h2>
+                  <p>
+                    Retrouvez toutes les images du produit, puis ajoutez-le au panier si la periode vous convient.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="public-shop-modal-close"
+                  onClick={closeProductPreview}
+                  disabled={isSubmitting || isFinalizingCheckout}
+                  aria-label="Fermer la fiche produit"
+                >
+                  x
+                </button>
+              </div>
+
+              <div className="public-shop-product-preview-layout">
+                <div className="public-shop-product-preview-gallery">
+                  <div className="public-shop-product-preview-stage">
+                    {activePreviewPhoto ? (
+                      <img
+                        src={activePreviewPhoto}
+                        alt={previewedProduct.public_name}
+                        className="public-shop-product-preview-image"
+                      />
+                    ) : (
+                      <div className="public-shop-product-preview-placeholder" aria-hidden="true">
+                        <span>{previewedProduct.public_name.slice(0, 1).toUpperCase()}</span>
+                      </div>
+                    )}
+
+                    {previewPhotos.length > 1 ? (
+                      <div className="public-shop-product-preview-nav">
+                        <button
+                          type="button"
+                          className="button subtle"
+                          onClick={() =>
+                            setPreviewPhotoIndex(
+                              activePreviewPhotoIndex === 0
+                                ? previewPhotos.length - 1
+                                : activePreviewPhotoIndex - 1
+                            )
+                          }
+                        >
+                          Precedente
+                        </button>
+                        <span>
+                          {activePreviewPhotoIndex + 1} / {previewPhotos.length}
+                        </span>
+                        <button
+                          type="button"
+                          className="button subtle"
+                          onClick={() =>
+                            setPreviewPhotoIndex(
+                              activePreviewPhotoIndex === previewPhotos.length - 1
+                                ? 0
+                                : activePreviewPhotoIndex + 1
+                            )
+                          }
+                        >
+                          Suivante
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {previewPhotos.length > 1 ? (
+                    <div className="public-shop-product-preview-thumbnails">
+                      {previewPhotos.map((photo, index) => (
+                        <button
+                          key={`${previewedProduct.id}-preview-${index}`}
+                          type="button"
+                          className={`public-shop-product-preview-thumb ${
+                            index === activePreviewPhotoIndex ? "active" : ""
+                          }`.trim()}
+                          onClick={() => setPreviewPhotoIndex(index)}
+                        >
+                          <img src={photo} alt={`${previewedProduct.public_name} ${index + 1}`} />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="public-shop-product-preview-copy">
+                  <StatusPill tone={(availabilityMeta[previewedProduct.status] || availabilityMeta.available).tone}>
+                    {(availabilityMeta[previewedProduct.status] || availabilityMeta.available).label}
+                  </StatusPill>
+
+                  <p>{previewedProduct.public_description}</p>
+
+                  {previewedProduct.long_description ? (
+                    <p className="public-shop-product-preview-description">
+                      {previewedProduct.long_description}
+                    </p>
+                  ) : null}
+
+                  <div className="public-shop-product-pricing">
+                    <div className="public-shop-product-price">
+                      <strong>{formatCurrency(previewedProduct.price)}</strong>
+                      <span>A partir de / jour</span>
+                    </div>
+
+                    <div className="public-shop-product-secondary">
+                      <span>Caution</span>
+                      <strong>{formatCurrency(previewedProduct.deposit)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="planning-inline-list public-shop-product-tags">
+                    {previewedProduct.category ? (
+                      <span className="planning-mini-badge">{previewedProduct.category}</span>
+                    ) : null}
+                    {previewedProduct.sku ? (
+                      <span className="planning-mini-badge">{previewedProduct.sku}</span>
+                    ) : null}
+                    {Array.isArray(previewedProduct.options) && previewedProduct.options.length ? (
+                      <span className="planning-mini-badge">
+                        {previewedProduct.options.length} option(s)
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="detail-card">
+                    <strong>
+                      {availabilityMessageByReason[previewedProduct.availability_reason] || "Produit indisponible"}
+                    </strong>
+                    <span>
+                      {previewedProduct.available_quantity} unite(s) disponibles pour cette periode.
+                    </span>
+                    {previewedProduct.availability_note ? (
+                      <span>{previewedProduct.availability_note}</span>
+                    ) : null}
+                  </div>
+
+                  <div className="public-shop-modal-actions">
+                    <button type="button" className="button ghost" onClick={closeProductPreview}>
+                      Fermer
+                    </button>
+                    <button
+                      type="button"
+                      className={`button ${
+                        previewedProduct.available_quantity > 0 ? "primary" : "subtle"
+                      }`}
+                      onClick={() => addProductToCart(previewedProduct)}
+                      disabled={previewedProduct.available_quantity <= 0}
+                    >
+                      {Array.isArray(previewedProduct.options) && previewedProduct.options.length
+                        ? "Configurer ce produit"
+                        : "Ajouter au panier"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        ) : null}
 
         {productConfigurator && configuratorProduct ? (
           <div

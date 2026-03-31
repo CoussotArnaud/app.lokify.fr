@@ -196,6 +196,41 @@ test("catalog category creation with image stores only a public R2 URL in base",
   assert.match(persistedImages[0].url, /^https:\/\/cdn\.lokify\.test\/categories\//);
 });
 
+test("catalog category stores SEO fields and optional logo image", async () => {
+  const userId = await getDemoUserId();
+  const thumbnailDataUrl = await buildRealJpegDataUrl(1200, 900);
+  const logoDataUrl = await buildRealJpegDataUrl(900, 900);
+  const result = await upsertCatalogCategory(userId, {
+    name: "Photobooth mariage",
+    description: "Location de photobooth mariage avec impression instantanee.",
+    meta_title: "Photobooth mariage - Location a Paris | Studio Demo",
+    meta_description: "Location de photobooth mariage avec impression instantanee.",
+    image_alt_text: "Photobooth mariage avec impression instantanee",
+    image_uploads: [
+      {
+        data_url: thumbnailDataUrl,
+        file_name: "photobooth-mariage.jpg",
+        kind: "thumbnail",
+        alt_text: "Photobooth mariage avec impression instantanee",
+      },
+      {
+        data_url: logoDataUrl,
+        file_name: "photobooth-mariage-logo.jpg",
+        kind: "logo",
+      },
+    ],
+  });
+
+  assert.equal(result.imageUploadFailures.length, 0);
+  assert.equal(result.category.meta_title, "Photobooth mariage - Location a Paris | Studio Demo");
+  assert.equal(
+    result.category.meta_description,
+    "Location de photobooth mariage avec impression instantanee."
+  );
+  assert.match(result.category.logo_image_url, /^https:\/\/cdn\.lokify\.test\/categories\//);
+  assert.equal(result.category.images.some((image) => image.kind === "logo"), true);
+});
+
 test("catalog category update replaces and deletes unused managed images", async () => {
   const userId = await getDemoUserId();
   const createdCategory = await upsertCatalogCategory(userId, {
@@ -427,6 +462,65 @@ test("catalog product update replaces and deletes unused managed images", async 
   assert.equal(updatedProduct.itemProfile.photos.length, 1);
   assert.notEqual(updatedProduct.itemProfile.photos[0], previousPhotoUrl);
   assert.deepEqual(deletedObjectKeys, [extractManagedObjectKey(previousPhotoUrl)]);
+});
+
+test("catalog product update keeps the requested image order across existing and new uploads", async () => {
+  const userId = await getDemoUserId();
+  const createdProduct = await createCatalogProduct(userId, {
+    item: {
+      name: "Totem selfie premium",
+      category: "Animation photo",
+      stock: 1,
+      status: "available",
+      price: 420,
+      deposit: 500,
+    },
+    profile: {
+      public_name: "Totem selfie premium",
+      public_description: "Produit avec image principale changee.",
+      category_slug: "animation-photo",
+      category_name: "Animation photo",
+      photos: [],
+    },
+    photo_uploads: [
+      {
+        data_url: await buildRealJpegDataUrl(1400, 1000),
+        file_name: "totem-selfie-premium.jpg",
+      },
+    ],
+  });
+  const previousPrimaryPhotoUrl = createdProduct.itemProfile.photos[0];
+
+  const updatedProduct = await updateCatalogProduct(userId, createdProduct.item.id, {
+    item: {
+      name: "Totem selfie premium",
+      category: "Animation photo",
+      stock: 1,
+      status: "available",
+      price: 420,
+      deposit: 500,
+    },
+    profile: {
+      public_name: "Totem selfie premium",
+      public_description: "Produit avec nouvelle image principale.",
+      category_slug: "animation-photo",
+      category_name: "Animation photo",
+      photos: [previousPrimaryPhotoUrl],
+    },
+    photo_uploads: [
+      {
+        client_id: "new-primary",
+        data_url: await buildRealJpegDataUrl(1280, 960),
+        file_name: "totem-selfie-premium-main.jpg",
+      },
+    ],
+    photo_sequence: ["upload:new-primary", previousPrimaryPhotoUrl],
+  });
+
+  assert.equal(updatedProduct.photoUploadFailures.length, 0);
+  assert.equal(updatedProduct.itemProfile.photos.length, 2);
+  assert.notEqual(updatedProduct.itemProfile.photos[0], previousPrimaryPhotoUrl);
+  assert.equal(updatedProduct.itemProfile.photos[1], previousPrimaryPhotoUrl);
 });
 
 test("catalog product update deletes a removed managed image when it is no longer referenced", async () => {

@@ -233,6 +233,32 @@ const buildCatalogProductPhotoWarning = (photoUploadFailures = [], keptExistingP
     : baseMessage;
 };
 
+const buildPhotoSequenceEntry = (entry) =>
+  entry.kind === "existing" ? entry.url : `upload:${entry.photo.id}`;
+
+const buildProductPhotoItems = (existingPhotos = [], pendingPhotos = []) => [
+  ...existingPhotos.map((photoUrl) => ({
+    key: `existing:${photoUrl}`,
+    kind: "existing",
+    url: photoUrl,
+  })),
+  ...pendingPhotos.map((photo) => ({
+    key: `pending:${photo.id}`,
+    kind: "pending",
+    photo,
+    url: photo.previewUrl,
+  })),
+];
+
+const splitProductPhotoItems = (items = []) => ({
+  photos: items
+    .filter((entry) => entry.kind === "existing")
+    .map((entry) => entry.url),
+  pendingPhotos: items
+    .filter((entry) => entry.kind === "pending")
+    .map((entry) => entry.photo),
+});
+
 function ProductEditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -272,6 +298,8 @@ function ProductEditorPageContent() {
       : null;
   const legacyTaxLabel =
     !form.tax_rate_id && form.vat !== null && form.vat !== undefined ? `TVA actuelle ${form.vat}%` : "";
+  const photoItems = buildProductPhotoItems(form.photos, pendingPhotos);
+  const primaryPhotoItem = photoItems[0] || null;
 
   useEffect(() => {
     const flashMessage = consumeFlashMessage();
@@ -338,6 +366,56 @@ function ProductEditorPageContent() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
+  const updatePhotoCollections = (updater) => {
+    const nextItems = updater(buildProductPhotoItems(form.photos, pendingPhotos));
+    const nextCollections = splitProductPhotoItems(nextItems);
+    setForm((current) => ({
+      ...current,
+      photos: nextCollections.photos,
+    }));
+    setPendingPhotos(nextCollections.pendingPhotos);
+  };
+
+  const movePhotoItem = (itemKey, direction) => {
+    updatePhotoCollections((currentItems) => {
+      const currentIndex = currentItems.findIndex((entry) => entry.key === itemKey);
+      const targetIndex = currentIndex + direction;
+
+      if (
+        currentIndex < 0 ||
+        targetIndex < 0 ||
+        targetIndex >= currentItems.length
+      ) {
+        return currentItems;
+      }
+
+      const nextItems = [...currentItems];
+      const [movedItem] = nextItems.splice(currentIndex, 1);
+      nextItems.splice(targetIndex, 0, movedItem);
+      return nextItems;
+    });
+  };
+
+  const promotePhotoItem = (itemKey) => {
+    updatePhotoCollections((currentItems) => {
+      const currentIndex = currentItems.findIndex((entry) => entry.key === itemKey);
+      if (currentIndex <= 0) {
+        return currentItems;
+      }
+
+      const nextItems = [...currentItems];
+      const [movedItem] = nextItems.splice(currentIndex, 1);
+      nextItems.unshift(movedItem);
+      return nextItems;
+    });
+  };
+
+  const removePhotoItem = (itemKey) => {
+    updatePhotoCollections((currentItems) =>
+      currentItems.filter((entry) => entry.key !== itemKey)
+    );
+  };
+
   const addPhotos = async (files) => {
     const selectedFiles = Array.from(files || []);
     const remainingSlots =
@@ -374,7 +452,10 @@ function ProductEditorPageContent() {
     }
 
     if (nextPendingPhotos.length) {
-      setPendingPhotos((current) => [...current, ...nextPendingPhotos]);
+      updatePhotoCollections((currentItems) => [
+        ...currentItems,
+        ...buildProductPhotoItems([], nextPendingPhotos),
+      ]);
       setFeedback(
         `${nextPendingPhotos.length} image(s) prete(s) a etre envoyee(s) lors de l'enregistrement.`
       );
@@ -461,9 +542,11 @@ function ProductEditorPageContent() {
           },
           profile: buildItemProfilePayload(form, selectedCategory, normalizedTaxRateId),
           photo_uploads: pendingPhotos.map((pendingPhoto) => ({
+            client_id: pendingPhoto.id,
             data_url: pendingPhoto.dataUrl,
             file_name: pendingPhoto.fileName,
           })),
+          photo_sequence: photoItems.map(buildPhotoSequenceEntry),
         },
         editingId || null
       );
@@ -1064,7 +1147,7 @@ function ProductEditorPageContent() {
                       <div className="section-block-header">
                         <div>
                           <h4>Boutique en ligne</h4>
-                          <p>Le produit est pret pour une future mise en ligne, sans l'imposer.</p>
+                          <p>La premiere image devient l'image principale du catalogue et de la boutique.</p>
                         </div>
                       </div>
 
@@ -1081,7 +1164,7 @@ function ProductEditorPageContent() {
                       </label>
 
                       <label className="button ghost" htmlFor="product-photos">
-                        Ajouter des photos
+                        Ajouter des images
                       </label>
                       <input
                         id="product-photos"
@@ -1099,51 +1182,120 @@ function ProductEditorPageContent() {
                         Dimensions minimales {MIN_CATALOG_IMAGE_WIDTH} x {MIN_CATALOG_IMAGE_HEIGHT} px.
                       </p>
 
-                      <div className="thumbnail-grid">
-                        {form.photos.map((photo, index) => (
-                          <div key={`photo-${index}`} className="thumbnail-card">
-                            <div className="thumbnail-media">
-                              <img src={photo} alt={`Photo produit ${index + 1}`} />
+                      <div className="editor-section-grid two-columns">
+                        <div className="detail-card catalog-media-summary-card">
+                          <strong>Image principale</strong>
+                          <span className="muted-text">
+                            Utilisee dans le catalogue, les listings et les cartes produit.
+                          </span>
+                          {primaryPhotoItem ? (
+                            <div className="thumbnail-card">
+                              <div className="thumbnail-media">
+                                <img
+                                  src={primaryPhotoItem.url}
+                                  alt={form.public_name || form.name || "Produit"}
+                                />
+                              </div>
+                              <div className="stack">
+                                <strong>
+                                  {primaryPhotoItem.kind === "pending"
+                                    ? "Nouvelle image principale"
+                                    : "Image principale actuelle"}
+                                </strong>
+                                <span className="muted-text">
+                                  {primaryPhotoItem.kind === "pending"
+                                    ? `${primaryPhotoItem.photo.width} x ${primaryPhotoItem.photo.height} px - ${formatCatalogImageSize(primaryPhotoItem.photo.sizeBytes)}`
+                                    : "La boutique et le catalogue utiliseront cette image en premier."}
+                                </span>
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              className="button subtle"
-                              onClick={() =>
-                                setValue(
-                                  "photos",
-                                  form.photos.filter((_, photoIndex) => photoIndex !== index)
-                                )
-                              }
-                            >
-                              Retirer
-                            </button>
+                          ) : (
+                            <div className="empty-state">
+                              <strong>Aucune image principale</strong>
+                              <span>Ajoutez une premiere image pour representer le produit partout.</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="detail-card catalog-media-summary-card">
+                          <strong>Galerie produit</strong>
+                          <span className="muted-text">
+                            Les autres images apparaissent dans la fiche produit cote boutique.
+                          </span>
+                          <div className="stack">
+                            <span className="muted-text">
+                              Glissez visuellement l'ordre avec les boutons. La premiere image reste la plus importante.
+                            </span>
+                            <span className="muted-text">
+                              {photoItems.length
+                                ? `${photoItems.length} image(s) preparee(s) sur ${MAX_CATALOG_ITEM_PHOTOS}`
+                                : "Aucune image ajoutee pour le moment."}
+                            </span>
                           </div>
-                        ))}
-                        {pendingPhotos.map((photo) => (
-                          <div key={photo.id} className="thumbnail-card">
-                            <div className="thumbnail-media">
-                              <img src={photo.previewUrl} alt={photo.fileName} />
-                            </div>
-                            <div className="stack">
-                              <span className="muted-text">
-                                {photo.width} x {photo.height} px - {formatCatalogImageSize(photo.sizeBytes)}
-                              </span>
-                              <span className="muted-text">En attente d'envoi</span>
-                            </div>
-                            <button
-                              type="button"
-                              className="button subtle"
-                              onClick={() =>
-                                setPendingPhotos((current) =>
-                                  current.filter((entry) => entry.id !== photo.id)
-                                )
-                              }
-                            >
-                              Retirer
-                            </button>
-                          </div>
-                        ))}
+                        </div>
                       </div>
+
+                      {photoItems.length ? (
+                        <div className="thumbnail-grid catalog-gallery-grid">
+                          {photoItems.map((photoItem, index) => (
+                            <div key={photoItem.key} className="thumbnail-card">
+                              <div className="thumbnail-media">
+                                <img
+                                  src={photoItem.url}
+                                  alt={`${form.public_name || form.name || "Produit"} ${index + 1}`}
+                                />
+                              </div>
+                              <div className="stack">
+                                <strong>
+                                  {index === 0 ? "Image principale" : `Galerie ${index}`}
+                                </strong>
+                                <span className="muted-text">
+                                  {photoItem.kind === "pending"
+                                    ? `${photoItem.photo.width} x ${photoItem.photo.height} px - ${formatCatalogImageSize(photoItem.photo.sizeBytes)}`
+                                    : "Image deja enregistree"}
+                                </span>
+                                <span className="muted-text">
+                                  {photoItem.kind === "pending" ? "En attente d'envoi" : "Deja visible apres sauvegarde"}
+                                </span>
+                              </div>
+                              <div className="row-actions thumbnail-actions">
+                                {index > 0 ? (
+                                  <button
+                                    type="button"
+                                    className="button subtle"
+                                    onClick={() => promotePhotoItem(photoItem.key)}
+                                  >
+                                    Mettre en avant
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="button subtle"
+                                  onClick={() => movePhotoItem(photoItem.key, -1)}
+                                  disabled={index === 0}
+                                >
+                                  Monter
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button subtle"
+                                  onClick={() => movePhotoItem(photoItem.key, 1)}
+                                  disabled={index === photoItems.length - 1}
+                                >
+                                  Descendre
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button subtle"
+                                  onClick={() => removePhotoItem(photoItem.key)}
+                                >
+                                  Retirer
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}

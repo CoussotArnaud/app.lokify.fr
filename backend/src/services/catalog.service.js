@@ -15,7 +15,7 @@ import {
 
 const validCatalogModes = new Set(["location", "sale", "resale"]);
 const validCategoryStatuses = new Set(["active", "draft", "inactive"]);
-const validCategoryImageKinds = new Set(["thumbnail", "banner", "gallery"]);
+const validCategoryImageKinds = new Set(["thumbnail", "logo", "gallery"]);
 const validAssignmentOrders = new Set(["auto", "manual", "fifo"]);
 const validPackDiscountTypes = new Set(["none", "amount", "percentage"]);
 const standardFrenchTaxRates = [
@@ -92,11 +92,41 @@ const normalizePhotoUploadPayloads = (value) => {
     return [];
   }
 
-  return value.filter((entry) => entry && typeof entry === "object");
+  return value
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      ...entry,
+      client_id: normalizeOptionalText(entry.client_id ?? entry.clientId ?? entry.id),
+    }));
+};
+
+const normalizePhotoSequence = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const sequence = [];
+
+  value.forEach((entry) => {
+    const normalizedEntry = normalizeWhitespace(entry);
+    if (!normalizedEntry || seen.has(normalizedEntry)) {
+      return;
+    }
+
+    seen.add(normalizedEntry);
+    sequence.push(normalizedEntry);
+  });
+
+  return sequence;
 };
 
 const normalizeCategoryImageKind = (value) => {
   const normalizedValue = normalizeWhitespace(value).toLowerCase();
+  if (normalizedValue === "banner") {
+    return "logo";
+  }
+
   return validCategoryImageKinds.has(normalizedValue) ? normalizedValue : "gallery";
 };
 
@@ -157,12 +187,14 @@ const normalizeCategoryImageEntries = (value, fallbackAltText = null) => {
 const buildCategoryImageEntries = ({
   images = [],
   imageUrl = null,
+  logoImageUrl = null,
   bannerImageUrl = null,
   imageAltText = null,
 } = {}) => {
   const entries = normalizeCategoryImageEntries(images, imageAltText);
   const hasThumbnail = entries.some((entry) => entry.kind === "thumbnail");
-  const hasBanner = entries.some((entry) => entry.kind === "banner");
+  const hasLogo = entries.some((entry) => entry.kind === "logo");
+  const resolvedLogoImageUrl = logoImageUrl || bannerImageUrl;
 
   if (imageUrl && !hasThumbnail) {
     const thumbnailEntry = normalizeCategoryImageEntry(
@@ -179,18 +211,16 @@ const buildCategoryImageEntries = ({
     }
   }
 
-  if (bannerImageUrl && !hasBanner) {
-    const bannerEntry = normalizeCategoryImageEntry(
+  if (resolvedLogoImageUrl && !hasLogo) {
+    const logoEntry = normalizeCategoryImageEntry(
       {
-        url: bannerImageUrl,
-        kind: "banner",
-        alt_text: imageAltText,
+        url: resolvedLogoImageUrl,
+        kind: "logo",
       },
-      "banner",
-      imageAltText
+      "logo"
     );
-    if (bannerEntry) {
-      entries.push(bannerEntry);
+    if (logoEntry) {
+      entries.push(logoEntry);
     }
   }
 
@@ -260,14 +290,15 @@ const serializeCategory = (row) => {
   const images = buildCategoryImageEntries({
     images: parseJsonList(row.images_json),
     imageUrl: row.image_url || null,
+    logoImageUrl: row.logo_image_url || null,
     bannerImageUrl: row.banner_image_url || null,
     imageAltText,
   });
   const thumbnailImage =
     images.find((image) => image.kind === "thumbnail") ||
-    images.find((image) => image.kind !== "banner") ||
+    images.find((image) => image.kind !== "logo") ||
     null;
-  const bannerImage = images.find((image) => image.kind === "banner") || null;
+  const logoImage = images.find((image) => image.kind === "logo") || null;
 
   return {
     id: row.id,
@@ -285,7 +316,10 @@ const serializeCategory = (row) => {
     icon_name: row.icon_name || "",
     image_url: thumbnailImage?.url || "",
     image_alt_text: imageAltText,
-    banner_image_url: bannerImage?.url || "",
+    logo_image_url: logoImage?.url || "",
+    banner_image_url: logoImage?.url || "",
+    meta_title: row.meta_title || "",
+    meta_description: row.meta_description || "",
     images,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -387,6 +421,8 @@ const normalizeCategoryPayload = (payload = {}, currentCategory = null) => {
   const status = String(payload.status || "active").trim().toLowerCase() || "active";
   const hasExplicitImages = payload.images !== undefined;
   const hasExplicitImageUrl = payload.image_url !== undefined || payload.imageUrl !== undefined;
+  const hasExplicitLogoImageUrl =
+    payload.logo_image_url !== undefined || payload.logoImageUrl !== undefined;
   const hasExplicitBannerImageUrl =
     payload.banner_image_url !== undefined || payload.bannerImageUrl !== undefined;
   const imageAltText =
@@ -399,10 +435,18 @@ const normalizeCategoryPayload = (payload = {}, currentCategory = null) => {
       : hasExplicitImages
         ? null
       : normalizeOptionalText(currentCategory?.image_url);
-  const bannerImageUrl =
+  const logoImageUrl =
+    hasExplicitLogoImageUrl
+      ? normalizeOptionalText(payload.logo_image_url ?? payload.logoImageUrl)
+      : hasExplicitImages
+        ? null
+      : normalizeOptionalText(
+          currentCategory?.logo_image_url || currentCategory?.banner_image_url
+        );
+  const legacyBannerImageUrl =
     hasExplicitBannerImageUrl
       ? normalizeOptionalText(payload.banner_image_url ?? payload.bannerImageUrl)
-      : hasExplicitImages
+      : hasExplicitLogoImageUrl || hasExplicitImages
         ? null
       : normalizeOptionalText(currentCategory?.banner_image_url);
   const images =
@@ -410,20 +454,22 @@ const normalizeCategoryPayload = (payload = {}, currentCategory = null) => {
       ? buildCategoryImageEntries({
           images: normalizeCategoryImageEntries(payload.images, imageAltText),
           imageUrl,
-          bannerImageUrl,
+          logoImageUrl,
+          bannerImageUrl: legacyBannerImageUrl,
           imageAltText,
         })
       : buildCategoryImageEntries({
           images: currentCategory?.images || [],
           imageUrl,
-          bannerImageUrl,
+          logoImageUrl,
+          bannerImageUrl: legacyBannerImageUrl,
           imageAltText,
         });
   const thumbnailImage =
     images.find((image) => image.kind === "thumbnail") ||
-    images.find((image) => image.kind !== "banner") ||
+    images.find((image) => image.kind !== "logo") ||
     null;
-  const bannerImage = images.find((image) => image.kind === "banner") || null;
+  const logoImage = images.find((image) => image.kind === "logo") || null;
 
   return {
     name,
@@ -452,7 +498,16 @@ const normalizeCategoryPayload = (payload = {}, currentCategory = null) => {
     icon_name: normalizeOptionalText(payload.icon_name ?? payload.iconName),
     image_url: thumbnailImage?.url || null,
     image_alt_text: imageAltText,
-    banner_image_url: bannerImage?.url || null,
+    logo_image_url: logoImage?.url || null,
+    banner_image_url: logoImage?.url || null,
+    meta_title:
+      payload.meta_title !== undefined || payload.metaTitle !== undefined
+        ? normalizeOptionalText(payload.meta_title ?? payload.metaTitle)
+        : normalizeOptionalText(currentCategory?.meta_title),
+    meta_description:
+      payload.meta_description !== undefined || payload.metaDescription !== undefined
+        ? normalizeOptionalText(payload.meta_description ?? payload.metaDescription)
+        : normalizeOptionalText(currentCategory?.meta_description),
     images,
   };
 };
@@ -757,7 +812,60 @@ const normalizeCatalogProductMutationPayload = (payload = {}) => {
     photo_uploads: normalizePhotoUploadPayloads(
       normalizedPayload.photo_uploads ?? normalizedPayload.photoUploads
     ),
+    photo_sequence: normalizePhotoSequence(
+      normalizedPayload.photo_sequence ?? normalizedPayload.photoSequence
+    ),
   };
+};
+
+const buildOrderedProductPhotoList = ({
+  retainedPhotos = [],
+  uploadedPhotos = [],
+  photoSequence = [],
+}) => {
+  const orderedPhotos = [];
+  const seen = new Set();
+  const retainedPhotoMap = new Map(retainedPhotos.map((photoUrl) => [photoUrl, photoUrl]));
+  const uploadedPhotoMap = new Map(
+    uploadedPhotos
+      .filter((entry) => entry?.sequenceKey && entry?.publicUrl)
+      .map((entry) => [entry.sequenceKey, entry.publicUrl])
+  );
+
+  photoSequence.forEach((sequenceEntry) => {
+    const retainedPhoto = retainedPhotoMap.get(sequenceEntry);
+    if (retainedPhoto && !seen.has(retainedPhoto)) {
+      seen.add(retainedPhoto);
+      orderedPhotos.push(retainedPhoto);
+      return;
+    }
+
+    const uploadedPhoto = uploadedPhotoMap.get(sequenceEntry);
+    if (uploadedPhoto && !seen.has(uploadedPhoto)) {
+      seen.add(uploadedPhoto);
+      orderedPhotos.push(uploadedPhoto);
+    }
+  });
+
+  retainedPhotos.forEach((photoUrl) => {
+    if (seen.has(photoUrl)) {
+      return;
+    }
+
+    seen.add(photoUrl);
+    orderedPhotos.push(photoUrl);
+  });
+
+  uploadedPhotos.forEach((entry) => {
+    if (!entry?.publicUrl || seen.has(entry.publicUrl)) {
+      return;
+    }
+
+    seen.add(entry.publicUrl);
+    orderedPhotos.push(entry.publicUrl);
+  });
+
+  return normalizePhotoUrls(orderedPhotos);
 };
 
 const stripPhotosFromProfilePayload = (payload = {}) => {
@@ -819,6 +927,7 @@ const extractCategoryImageUrls = (category = null) =>
     buildCategoryImageEntries({
       images: category?.images || [],
       imageUrl: category?.image_url || null,
+      logoImageUrl: category?.logo_image_url || null,
       bannerImageUrl: category?.banner_image_url || null,
       imageAltText: category?.image_alt_text || null,
     }).map((image) => image.url)
@@ -865,7 +974,7 @@ const getCatalogCategoryById = async (userId, categoryId) => {
 const listReferencedCategoryImagesByOtherCategories = async (userId, categoryId) => {
   const { rows } = await query(
     `
-      SELECT image_url, banner_image_url, images_json
+      SELECT image_url, logo_image_url, banner_image_url, images_json
       FROM catalog_categories
       WHERE user_id = $1
         AND id <> $2
@@ -878,6 +987,7 @@ const listReferencedCategoryImagesByOtherCategories = async (userId, categoryId)
     buildCategoryImageEntries({
       images: parseJsonList(row.images_json),
       imageUrl: row.image_url || null,
+      logoImageUrl: row.logo_image_url || null,
       bannerImageUrl: row.banner_image_url || null,
     }).forEach((image) => {
       if (image.url) {
@@ -933,7 +1043,10 @@ const persistCatalogCategoryRecord = async (userId, category, existingCategory =
             image_url = $14,
             image_alt_text = $15,
             banner_image_url = $16,
-            images_json = $17
+            logo_image_url = $17,
+            meta_title = $18,
+            meta_description = $19,
+            images_json = $20
         WHERE id = $1 AND user_id = $2
         RETURNING *
       `,
@@ -954,6 +1067,9 @@ const persistCatalogCategoryRecord = async (userId, category, existingCategory =
         category.image_url,
         category.image_alt_text,
         category.banner_image_url,
+        category.logo_image_url,
+        category.meta_title,
+        category.meta_description,
         JSON.stringify(category.images),
       ]
     );
@@ -981,10 +1097,13 @@ const persistCatalogCategoryRecord = async (userId, category, existingCategory =
         image_url,
         image_alt_text,
         banner_image_url,
+        logo_image_url,
+        meta_title,
+        meta_description,
         images_json
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
       )
       RETURNING *
     `,
@@ -1005,6 +1124,9 @@ const persistCatalogCategoryRecord = async (userId, category, existingCategory =
       category.image_url,
       category.image_alt_text,
       category.banner_image_url,
+      category.logo_image_url,
+      category.meta_title,
+      category.meta_description,
       JSON.stringify(category.images),
     ]
   );
@@ -1034,6 +1156,7 @@ const syncCatalogCategoryImages = async (
   const currentImages = buildCategoryImageEntries({
     images: currentCategory.images,
     imageUrl: currentCategory.image_url,
+    logoImageUrl: currentCategory.logo_image_url,
     bannerImageUrl: currentCategory.banner_image_url,
     imageAltText: currentCategory.image_alt_text,
   });
@@ -1106,9 +1229,9 @@ const syncCatalogCategoryImages = async (
       );
   const thumbnailImage =
     finalImages.find((image) => image.kind === "thumbnail") ||
-    finalImages.find((image) => image.kind !== "banner") ||
+    finalImages.find((image) => image.kind !== "logo") ||
     null;
-  const bannerImage = finalImages.find((image) => image.kind === "banner") || null;
+  const logoImage = finalImages.find((image) => image.kind === "logo") || null;
   const nextCategory = await persistCatalogCategoryRecord(
     userId,
     {
@@ -1119,7 +1242,8 @@ const syncCatalogCategoryImages = async (
         finalImages.find((image) => image.alt_text)?.alt_text ||
         persistedCategory.image_alt_text ||
         null,
-      banner_image_url: bannerImage?.url || null,
+      logo_image_url: logoImage?.url || null,
+      banner_image_url: logoImage?.url || null,
       images: finalImages,
     },
     persistedCategory
@@ -1180,7 +1304,7 @@ export const deleteCatalogCategory = async (userId, categorySlug) => {
     `
       DELETE FROM catalog_categories
       WHERE user_id = $1 AND slug = $2
-      RETURNING id, slug, name, image_url, image_alt_text, banner_image_url, images_json
+      RETURNING *
     `,
     [userId, categorySlug]
   );
@@ -1626,7 +1750,7 @@ export const upsertItemProfile = async (userId, itemId, payload = {}) => {
 const syncItemProfilePhotos = async (
   userId,
   itemId,
-  { retainedPhotos, photoUploads = [] } = {}
+  { retainedPhotos, photoUploads = [], photoSequence = [] } = {}
 ) => {
   const item = await ensureItemOwnedByUser(userId, itemId);
   const currentProfile = await getItemProfileByItemId(userId, itemId);
@@ -1653,7 +1777,10 @@ const syncItemProfilePhotos = async (
         payload: photoUpload,
       });
 
-      uploadedPhotos.push(uploadedPhoto.publicUrl);
+      uploadedPhotos.push({
+        publicUrl: uploadedPhoto.publicUrl,
+        sequenceKey: photoUpload.client_id ? `upload:${photoUpload.client_id}` : null,
+      });
     } catch (error) {
       uploadFailures.push({
         statusCode: error.statusCode || 502,
@@ -1668,8 +1795,20 @@ const syncItemProfilePhotos = async (
     (photoUrl) => !nextRetainedPhotos.includes(photoUrl)
   );
   const finalPhotos = hasUploadFailure
-    ? normalizePhotoUrls([...currentPhotos, ...uploadedPhotos])
-    : normalizePhotoUrls([...nextRetainedPhotos, ...uploadedPhotos]);
+    ? normalizePhotoUrls([
+        ...currentPhotos,
+        ...uploadedPhotos.map((uploadedPhoto) => uploadedPhoto.publicUrl),
+      ])
+    : photoSequence.length
+      ? buildOrderedProductPhotoList({
+          retainedPhotos: nextRetainedPhotos,
+          uploadedPhotos,
+          photoSequence,
+        })
+      : normalizePhotoUrls([
+          ...nextRetainedPhotos,
+          ...uploadedPhotos.map((uploadedPhoto) => uploadedPhoto.publicUrl),
+        ]);
   const removedPhotos = hasUploadFailure
     ? []
     : currentPhotos.filter((photoUrl) => !finalPhotos.includes(photoUrl));
@@ -1699,6 +1838,7 @@ export const createCatalogProduct = async (userId, payload = {}) => {
   const photoSyncResult = await syncItemProfilePhotos(userId, item.id, {
     retainedPhotos: normalizedPayload.profile.photos,
     photoUploads: normalizedPayload.photo_uploads,
+    photoSequence: normalizedPayload.photo_sequence,
   });
 
   return {
@@ -1720,6 +1860,7 @@ export const updateCatalogProduct = async (userId, itemId, payload = {}) => {
   const photoSyncResult = await syncItemProfilePhotos(userId, itemId, {
     retainedPhotos: normalizedPayload.profile.photos,
     photoUploads: normalizedPayload.photo_uploads,
+    photoSequence: normalizedPayload.photo_sequence,
   });
 
   return {

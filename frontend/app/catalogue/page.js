@@ -41,6 +41,7 @@ const buildCategoryRows = (categories, products) => {
       label: category.name || "Categorie",
       productCount: 0,
       isUncategorized: false,
+      logoUrl: category.logo_image_url || "",
     });
   });
   products.forEach((product) => {
@@ -52,6 +53,7 @@ const buildCategoryRows = (categories, products) => {
         label: product.category || "Categorie",
         productCount: 0,
         isUncategorized: false,
+        logoUrl: "",
       });
     }
   });
@@ -65,6 +67,7 @@ const buildCategoryRows = (categories, products) => {
       label: "Sans categorie",
       productCount: uncategorizedCount,
       isUncategorized: true,
+      logoUrl: "",
     });
   }
   return rows;
@@ -466,7 +469,7 @@ export default function CataloguePage() {
 
         <Panel title={"Cat\u00e9gories et produits"} description={"Acc\u00e8s rapide aux cat\u00e9gories et aux produits de la vue courante."} className={`catalog-products-panel ${productCards.length ? "has-products" : ""}`.trim()} actions={<div className="toolbar-group">{selectedCategoryRecord ? <StatusPill tone={productCards.length ? "success" : "neutral"}>{`${selectedCategoryRecord.label} - ${productCountLabel}`}</StatusPill> : null}<Link href={selectedCategoryHref} className="button primary">Ajouter produit</Link></div>}>
           <div className="catalog-category-tabs" role="tablist" aria-label={"Cat\u00e9gories du catalogue"}>
-            {categoryRows.map((category) => <button key={category.id} type="button" className={`catalog-category-tab ${selectedCategory === category.id ? "active" : ""}`.trim()} onClick={() => setSelectedCategory(category.id)} aria-pressed={selectedCategory === category.id}><span>{category.label}</span><strong>{category.productCount}</strong></button>)}
+            {categoryRows.map((category) => <button key={category.id} type="button" className={`catalog-category-tab ${selectedCategory === category.id ? "active" : ""}`.trim()} onClick={() => setSelectedCategory(category.id)} aria-pressed={selectedCategory === category.id}><span className="catalog-category-tab-copy">{category.logoUrl ? <img src={category.logoUrl} alt="" className="catalog-category-tab-logo" /> : null}<span>{category.label}</span></span><strong>{category.productCount}</strong></button>)}
           </div>
           {selectedCategoryRecord ? (
             <div className={`catalog-products-context ${productCards.length ? "has-products" : ""}`.trim()}>
