@@ -11535,7 +11535,7 @@ a:focus-visible {
 .public-shop-page.public-shop-v6 .public-shop-section-block.public-shop-v6-section,
 .public-shop-page.public-shop-v6 .public-shop-v6-stage,
 .public-shop-page.public-shop-v6 .public-shop-v6-footer {
-  animation: storefront-fade-up 0.45s ease both;
+  animation: none;
 }
 
 .public-shop-page.public-shop-v6 .storefront-empty-state-icon {

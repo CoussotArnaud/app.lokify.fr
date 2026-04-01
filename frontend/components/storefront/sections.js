@@ -281,7 +281,7 @@ export function StorefrontCategoriesSection({ categories, revealCatalog, isLoadi
         }
       />
 
-      {isLoading ? (
+      {isLoading && !categories.length ? (
         <CategorySkeletonGrid />
       ) : categories.length ? (
         <div className="public-shop-v6-category-grid">
