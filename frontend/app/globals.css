@@ -10425,8 +10425,8 @@ a:focus-visible {
 }
 
 .public-shop-page.public-shop-v6 .public-shop-shell {
-  gap: clamp(2.75rem, 4vw, 4rem);
-  padding-top: clamp(1.6rem, 3vw, 2.35rem);
+  gap: clamp(1.5rem, 2.2vw, 2rem);
+  padding-top: clamp(0.85rem, 1.2vw, 1.1rem);
   padding-bottom: clamp(3rem, 6vw, 4.75rem);
 }
 
@@ -10554,11 +10554,11 @@ a:focus-visible {
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-topbar-inner {
-  min-height: 84px;
+  min-height: 72px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-brand {
@@ -10572,17 +10572,18 @@ a:focus-visible {
 
 .public-shop-page.public-shop-v6 .public-shop-v6-topbar-nav {
   justify-content: center;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-topbar-nav a {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
-  padding: 0.55rem 0.9rem;
+  min-height: 40px;
+  padding: 0.42rem 0.75rem;
   border-radius: 12px;
   color: #364152;
   text-decoration: none;
+  font-size: 0.92rem;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -10593,7 +10594,7 @@ a:focus-visible {
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-topbar-actions {
-  gap: 0.9rem;
+  gap: 0.65rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero,
@@ -10618,9 +10619,9 @@ a:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 0.94fr) minmax(460px, 1.06fr);
   align-items: center;
-  gap: clamp(1.75rem, 2.5vw, 2.5rem);
-  min-height: clamp(540px, 62vh, 620px);
-  padding: clamp(1.45rem, 2vw, 1.95rem);
+  gap: clamp(1rem, 1.6vw, 1.5rem);
+  min-height: clamp(430px, 50vh, 500px);
+  padding: clamp(1rem, 1.35vw, 1.3rem);
   border-radius: var(--storefront-radius-2xl);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.99), rgba(251, 247, 255, 0.98) 44%, rgba(243, 248, 255, 0.98)),
@@ -10660,7 +10661,7 @@ a:focus-visible {
   z-index: 1;
   display: grid;
   align-content: center;
-  gap: 1.4rem;
+  gap: 1rem;
   padding: 0;
 }
 
@@ -10679,36 +10680,36 @@ a:focus-visible {
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-copy-top {
-  gap: 0.9rem;
+  gap: 0.65rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-heading-stack {
   display: grid;
-  gap: 0.8rem;
-  max-width: 28rem;
+  gap: 0.6rem;
+  max-width: 29rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-intro {
   margin: 0;
   color: #445068;
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-heading-stack h1 {
-  max-width: 28rem;
+  max-width: 29rem;
   margin: 0;
-  font-size: clamp(2.8rem, 3.8vw, 3.3rem);
-  line-height: 0.98;
+  font-size: clamp(2.5rem, 3.2vw, 3rem);
+  line-height: 0.95;
   letter-spacing: -0.05em;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-description {
-  max-width: 28rem;
+  max-width: 31rem;
   margin: 0;
-  font-size: 0.98rem;
-  line-height: 1.55;
+  font-size: 0.9rem;
+  line-height: 1.42;
   color: #445068;
 }
 
@@ -10716,19 +10717,19 @@ a:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
-  padding: 0.52rem 0.82rem;
+  padding: 0.42rem 0.72rem;
   border-radius: 999px;
   border: 1px solid rgba(23, 34, 56, 0.08);
   background: rgba(255, 255, 255, 0.82);
   color: var(--storefront-text);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 700;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-support {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.4rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-support span,
@@ -10736,18 +10737,18 @@ a:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.58rem 0.82rem;
+  padding: 0.42rem 0.68rem;
   border-radius: 999px;
   border: 1px solid rgba(23, 34, 56, 0.08);
   background: rgba(255, 255, 255, 0.8);
   color: #42506a;
-  font-size: 0.84rem;
+  font-size: 0.76rem;
   box-shadow: 0 10px 24px rgba(18, 27, 42, 0.04);
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-card {
-  margin-top: 0.35rem;
-  padding: clamp(1.05rem, 1.8vw, 1.3rem);
+  margin-top: 0.15rem;
+  padding: clamp(0.85rem, 1.2vw, 1rem);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.98);
   border: 1px solid rgba(229, 231, 235, 0.96);
@@ -10760,19 +10761,19 @@ a:focus-visible {
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-foot {
   display: flex;
   justify-content: flex-start;
-  gap: 0.8rem;
+  gap: 0.65rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-head h2 {
-  margin: 0.24rem 0 0;
-  font-size: clamp(1.3rem, 1.6vw, 1.55rem);
+  margin: 0.18rem 0 0;
+  font-size: clamp(1.12rem, 1.25vw, 1.3rem);
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-head p:last-child {
-  margin: 0.35rem 0 0;
+  margin: 0.22rem 0 0;
   color: #4c5870;
-  font-size: 0.92rem;
-  line-height: 1.5;
+  font-size: 0.84rem;
+  line-height: 1.4;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-status {
@@ -10814,9 +10815,9 @@ a:focus-visible {
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-grid,
 .public-shop-page.public-shop-v6 .public-shop-v6-sidebar-fields {
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: 0.65rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-card .field,
@@ -10825,8 +10826,8 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  min-height: 48px;
-  padding: 0.75rem 0.85rem;
+  min-height: 44px;
+  padding: 0.62rem 0.72rem;
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.98);
@@ -10861,7 +10862,7 @@ a:focus-visible {
   border: none;
   background: transparent;
   color: var(--storefront-text);
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 700;
   box-shadow: none;
 }
@@ -10874,25 +10875,25 @@ a:focus-visible {
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-foot {
-  margin-top: 0.95rem;
+  margin-top: 0.72rem;
   flex-direction: column;
   align-items: stretch;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reservation-cta {
   width: 100%;
-  min-height: 50px;
+  min-height: 44px;
   border-radius: 12px;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-media {
   position: relative;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 16px;
   min-height: 100%;
   background: linear-gradient(160deg, #16233b, #21345a 56%, #285ea1);
-  box-shadow: 0 18px 44px rgba(18, 27, 42, 0.14);
+  box-shadow: 0 14px 34px rgba(18, 27, 42, 0.12);
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-media::after {
@@ -10910,7 +10911,7 @@ a:focus-visible {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 500px;
+  min-height: 390px;
   object-fit: cover;
 }
 
@@ -10940,13 +10941,13 @@ a:focus-visible {
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-media-caption {
   position: absolute;
-  left: 1rem;
-  bottom: 1rem;
+  left: 0.8rem;
+  bottom: 0.8rem;
   display: grid;
   gap: 0.3rem;
-  max-width: min(68%, 280px);
-  padding: 0.75rem 0.9rem;
-  border-radius: 18px;
+  max-width: min(64%, 250px);
+  padding: 0.6rem 0.72rem;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(14px);
   box-shadow: 0 18px 36px rgba(18, 27, 42, 0.16);
@@ -10962,21 +10963,21 @@ a:focus-visible {
 
 .public-shop-page.public-shop-v6 .public-shop-v6-hero-media-caption strong {
   color: var(--storefront-text);
-  font-size: 0.92rem;
+  font-size: 0.82rem;
   line-height: 1.35;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reassurance {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reassurance-card,
 .public-shop-page.public-shop-v6 .public-shop-v6-review-card,
 .public-shop-page.public-shop-v6 .public-shop-v6-step-card,
 .public-shop-page.public-shop-v6 .public-shop-v6-metric-card {
-  padding: 1rem 1.05rem;
+  padding: 0.82rem 0.88rem;
   border-radius: var(--storefront-radius-xl);
 }
 
@@ -11007,8 +11008,8 @@ a:focus-visible {
 .public-shop-page.public-shop-v6 .public-shop-v6-step-icon {
   display: inline-grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   border-radius: 14px;
   background: linear-gradient(135deg, var(--storefront-primary-soft), var(--storefront-secondary-soft));
   color: var(--storefront-primary-dark);
@@ -11019,9 +11020,9 @@ a:focus-visible {
   justify-items: center;
   align-content: start;
   text-align: center;
-  gap: 0.65rem;
-  padding: 1rem 0.95rem;
-  border-radius: 20px;
+  gap: 0.5rem;
+  padding: 0.8rem 0.75rem;
+  border-radius: 18px;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reassurance-copy {
@@ -11030,13 +11031,13 @@ a:focus-visible {
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reassurance-copy strong {
-  font-size: 0.98rem;
+  font-size: 0.88rem;
 }
 
 .public-shop-page.public-shop-v6 .public-shop-v6-reassurance-copy span {
   color: #6b7280;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  font-size: 0.72rem;
+  line-height: 1.35;
   max-width: 24ch;
 }
 
