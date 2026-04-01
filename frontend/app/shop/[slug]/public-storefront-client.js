@@ -142,9 +142,14 @@ const buildAvailabilityMessage = (label, reason) =>
     ? `${label} est en rupture de stock.`
     : `${label} est indisponible sur cette periode.`;
 
+const STOREFRONT_DRAFT_VERSION = "public-shop-v6-2026-04-01";
+const STOREFRONT_DRAFT_TTL_MS = 1000 * 60 * 60 * 12;
+
 const getStorefrontDraftStorageKey = (slug) => {
   const normalizedSlug = String(slug || "").trim();
-  return normalizedSlug ? `lokify:storefront:public:${normalizedSlug}` : "";
+  return normalizedSlug
+    ? `lokify:storefront:public:${STOREFRONT_DRAFT_VERSION}:${normalizedSlug}`
+    : "";
 };
 
 export default function PublicStorefrontClient({
@@ -197,6 +202,16 @@ export default function PublicStorefrontClient({
 
       if (rawDraft) {
         const parsedDraft = JSON.parse(rawDraft);
+        const savedAt = Number(parsedDraft?.saved_at || 0);
+        const isDraftFresh =
+          Number.isFinite(savedAt) && Date.now() - savedAt <= STOREFRONT_DRAFT_TTL_MS;
+        const canReuseDraft =
+          parsedDraft?.version === STOREFRONT_DRAFT_VERSION && isDraftFresh;
+
+        if (!canReuseDraft) {
+          window.sessionStorage.removeItem(draftStorageKey);
+          return;
+        }
 
         if (parsedDraft?.bookingForm) {
           setBookingForm((current) => ({
@@ -232,6 +247,8 @@ export default function PublicStorefrontClient({
       window.sessionStorage.setItem(
         draftStorageKey,
         JSON.stringify({
+          version: STOREFRONT_DRAFT_VERSION,
+          saved_at: Date.now(),
           bookingForm,
           cartEntries,
           customerForm,
