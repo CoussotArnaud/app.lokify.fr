@@ -39,6 +39,60 @@ const CatalogMetricCard = ({ icon, label, value, helper }) => (
   </article>
 );
 
+const buildCatalogMetrics = ({
+  visibleProductCount,
+  visiblePackCount,
+  compactPeriodLabel,
+  durationDays,
+  resolvedCartEntries,
+  totalRequestedQuantity,
+  isLoading,
+}) => {
+  if (isLoading && visibleProductCount + visiblePackCount === 0) {
+    return [
+      {
+        icon: "catalog",
+        label: "Selection",
+        value: "En preparation",
+        helper: "Le catalogue se charge pour vos dates.",
+      },
+      {
+        icon: "calendar",
+        label: "Periode",
+        value: compactPeriodLabel,
+        helper: `${durationDays} jour(s) pris en compte pour cette recherche`,
+      },
+      {
+        icon: "shop",
+        label: "Panier",
+        value: "Pret a composer",
+        helper: "Ajoutez les produits qui vous conviennent des qu'ils apparaissent.",
+      },
+    ];
+  }
+
+  return [
+    {
+      icon: "catalog",
+      label: "Selection",
+      value: `${visibleProductCount + visiblePackCount} offres`,
+      helper: `${visibleProductCount} produits et ${visiblePackCount} packs disponibles`,
+    },
+    {
+      icon: "calendar",
+      label: "Periode",
+      value: compactPeriodLabel,
+      helper: `${durationDays} jour(s) calcules pour cette location`,
+    },
+    {
+      icon: "shop",
+      label: "Panier",
+      value: `${resolvedCartEntries.length} ligne(s)`,
+      helper: `${totalRequestedQuantity} element(s) selectionnes`,
+    },
+  ];
+};
+
 const CategoryFilterBar = ({ categories, activeCategoryFilter, revealCatalog }) => (
   <div className="public-shop-v6-filter-row" aria-label="Filtres categorie">
     <button
@@ -260,6 +314,16 @@ export default function StorefrontCatalogStage({
   productById,
   openProductConfigurator,
 }) {
+  const catalogMetrics = buildCatalogMetrics({
+    visibleProductCount,
+    visiblePackCount,
+    compactPeriodLabel,
+    durationDays,
+    resolvedCartEntries,
+    totalRequestedQuantity,
+    isLoading: shopState.loading,
+  });
+
   return (
     <section
       id="storefront-catalogue"
@@ -271,11 +335,11 @@ export default function StorefrontCatalogStage({
       <main className="public-shop-main-column public-shop-v6-main-column">
         <div className="public-shop-v6-catalogue-intro">
           <div>
-            <p className="eyebrow">Catalogue public</p>
+            <p className="eyebrow">La selection</p>
             <h2>Composez votre location en toute confiance</h2>
             <p>
-              Une seule experience pour consulter la selection, verifier les disponibilites, ajouter
-              vos produits et preparer votre demande ou votre paiement.
+              Comparez les produits, verifiez les disponibilites et composez votre panier dans une
+              seule experience plus lisible.
             </p>
           </div>
           <div className="public-shop-v6-catalogue-caption">
@@ -285,24 +349,15 @@ export default function StorefrontCatalogStage({
         </div>
 
         <div className="public-shop-v6-metric-grid">
-          <CatalogMetricCard
-            icon="catalog"
-            label="Selection publique"
-            value={`${visibleProductCount + visiblePackCount} offres`}
-            helper={`${visibleProductCount} produits et ${visiblePackCount} packs visibles`}
-          />
-          <CatalogMetricCard
-            icon="calendar"
-            label="Periode analysee"
-            value={compactPeriodLabel}
-            helper={`${durationDays} jour(s) calcules pour cette location`}
-          />
-          <CatalogMetricCard
-            icon="shop"
-            label="Panier en cours"
-            value={`${resolvedCartEntries.length} ligne(s)`}
-            helper={`${totalRequestedQuantity} element(s) selectionnes`}
-          />
+          {catalogMetrics.map((metric) => (
+            <CatalogMetricCard
+              key={metric.label}
+              icon={metric.icon}
+              label={metric.label}
+              value={metric.value}
+              helper={metric.helper}
+            />
+          ))}
         </div>
 
         {categories.length ? (
@@ -316,7 +371,7 @@ export default function StorefrontCatalogStage({
         {shopState.loading && products.length ? (
           <div className="public-shop-v6-inline-loading" role="status" aria-live="polite">
             <Icon name="clock" size={16} />
-            <span>Mise a jour des disponibilites en cours pour la periode selectionnee.</span>
+            <span>Nous verifions les disponibilites pour vos dates.</span>
           </div>
         ) : null}
 
@@ -459,7 +514,7 @@ export default function StorefrontCatalogStage({
               </div>
               <div className="public-shop-v6-summary-row">
                 <span>Disponibilites</span>
-                <strong>{shopState.loading ? "Mise a jour..." : "Actualisees"}</strong>
+                <strong>{shopState.loading ? "Analyse..." : "Actualisees"}</strong>
               </div>
             </div>
           </section>
@@ -469,7 +524,11 @@ export default function StorefrontCatalogStage({
               <div>
                 <p className="eyebrow">Validation</p>
                 <h3>{paymentSummary.enabled ? "Paiement en ligne" : "Demande de reservation"}</h3>
-                <p>{paymentSummary.description}</p>
+                <p>
+                  {paymentSummary.enabled
+                    ? "Le montant de location est regle en ligne dans un parcours clair."
+                    : "Votre panier est prepare puis transmis au prestataire pour confirmation rapide."}
+                </p>
               </div>
               <StatusPill tone={paymentSummary.enabled ? "success" : "neutral"}>
                 {paymentSummary.label}
@@ -661,7 +720,7 @@ export default function StorefrontCatalogStage({
               onClick={openCheckoutModal}
               disabled={shopState.loading || !cartHasEntries || isFinalizingCheckout}
             >
-              {shopState.loading ? "Mise a jour..." : checkoutActionLabel}
+              {shopState.loading ? "Analyse en cours..." : checkoutActionLabel}
             </button>
           </section>
 

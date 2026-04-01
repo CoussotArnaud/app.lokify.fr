@@ -14,39 +14,66 @@ const buildHeroMetrics = ({
   packs = [],
   paymentSummary = null,
   providerLocation = "",
+  isLoading = false,
 }) => {
   const startingPrice = [...products]
     .map((product) => Number(product?.price || 0))
     .filter((price) => Number.isFinite(price) && price > 0)
     .sort((left, right) => left - right)[0];
+  const offerCount = products.length + packs.length;
+  const selectionValue = isLoading
+    ? "Selection en cours"
+    : offerCount > 0
+      ? `${offerCount} experiences`
+      : "Sur mesure";
+  const universeValue = isLoading
+    ? "Catalogue en cours"
+    : categories.length > 0
+      ? `${categories.length} univers`
+      : "Selection sur demande";
 
   return [
     {
       label: "A partir de",
-      value: startingPrice ? formatCurrency(startingPrice) : "Sur demande",
+      value: startingPrice ? formatCurrency(startingPrice) : "Sur devis",
     },
     {
-      label: "Selection publique",
-      value: `${products.length + packs.length} offres`,
+      label: "Selection",
+      value: selectionValue,
     },
     {
-      label: "Zone couverte",
+      label: "Zone",
       value: providerLocation || "Sur devis",
     },
     {
       label: "Validation",
-      value: paymentSummary?.enabled ? "Paiement en ligne" : "Demande rapide",
+      value: paymentSummary?.enabled ? "Reservation & paiement" : "Demande accompagnee",
     },
     {
       label: "Univers",
-      value: `${categories.length || 0} categories`,
-    },
-    {
-      label: "Accompagnement",
-      value: "Equipe reactive",
+      value: universeValue,
     },
   ];
 };
+
+const CategorySkeletonGrid = () => (
+  <div className="public-shop-v6-category-grid" aria-hidden="true">
+    {Array.from({ length: 3 }).map((_, index) => (
+      <article key={`category-skeleton-${index}`} className="public-shop-v6-category-card storefront-skeleton-card">
+        <div className="storefront-skeleton storefront-skeleton-category-media" />
+        <div className="public-shop-v6-category-overlay storefront-skeleton-overlay">
+          <div className="storefront-skeleton storefront-skeleton-line storefront-skeleton-line-lg" />
+          <div className="storefront-skeleton storefront-skeleton-line" />
+          <div className="storefront-skeleton storefront-skeleton-line storefront-skeleton-line-sm" />
+          <div className="storefront-skeleton storefront-skeleton-row">
+            <div className="storefront-skeleton storefront-skeleton-pill" />
+            <div className="storefront-skeleton storefront-skeleton-pill" />
+          </div>
+        </div>
+      </article>
+    ))}
+  </div>
+);
 
 const StorefrontSectionHeading = ({ eyebrow, title, description, action = null }) => (
   <div className="public-shop-section-head public-shop-v6-section-head">
@@ -119,6 +146,7 @@ export function StorefrontHero({
     packs,
     paymentSummary,
     providerLocation,
+    isLoading,
   });
 
   return (
@@ -134,12 +162,12 @@ export function StorefrontHero({
           </div>
 
           <div className="public-shop-v6-heading-stack">
-            <p className="eyebrow">Boutique publique</p>
-            <h1>Une location simple, elegante et rassurante des la premiere visite.</h1>
+            <p className="eyebrow">Location evenementielle premium</p>
+            <h1>Donnez du relief a votre evenement avec une reservation simple et haut de gamme.</h1>
             <p className="public-shop-v6-hero-description">
-              {storefrontName} vous accompagne pour reserver vos animations, materiels et packs
-              evenementiels avec un parcours clair, des disponibilites visibles et un panier
-              facile a verifier.
+              {storefrontName} met en scene une selection pensee pour reserver vite, comparer
+              sereinement les produits et valider votre projet avec un panier clair des la
+              premiere visite.
             </p>
           </div>
 
@@ -162,8 +190,8 @@ export function StorefrontHero({
               {providerLocation || "Partout en France sur demande"}
             </span>
             <span>
-              <Icon name="catalog" size={16} />
-              {visibleProductCount} produits visibles
+              <Icon name="shield" size={16} />
+              Validation et recapitulatif clairs
             </span>
             <span>
               <Icon name="truck" size={16} />
@@ -179,12 +207,12 @@ export function StorefrontHero({
               <h2>Choisissez votre periode</h2>
               <p>
                 Indiquez vos dates et vos horaires souhaites pour consulter la selection
-                disponible et composer votre panier.
+                disponible et composer votre panier avec une vision nette des disponibilites.
               </p>
             </div>
             <div className="public-shop-v6-reservation-status">
-              <span>{paymentSummary?.enabled ? "Paiement actif" : "Demande en ligne"}</span>
-              {isLoading ? <strong>Mise a jour en cours</strong> : <strong>Disponibilites en direct</strong>}
+              <span>{paymentSummary?.enabled ? "Validation immediate" : "Validation accompagnee"}</span>
+              {isLoading ? <strong>Actualisation en cours</strong> : <strong>Disponibilites verifiees</strong>}
             </div>
           </div>
 
@@ -263,7 +291,7 @@ export function StorefrontHero({
           <div className="public-shop-v6-hero-placeholder" aria-hidden="true">
             <div>
               <span>{storefrontName.slice(0, 1).toUpperCase()}</span>
-              <small>Boutique publique</small>
+              <small>Selection premium</small>
             </div>
           </div>
         )}
@@ -295,10 +323,10 @@ export function StorefrontReassuranceStrip({ paymentSummary }) {
     },
     {
       icon: paymentSummary?.enabled ? "euro" : "document",
-      title: paymentSummary?.enabled ? "Paiement securise" : "Demande structuree",
-      description:
-        paymentSummary?.description ||
-        "Votre demande conserve les informations utiles pour une validation rapide.",
+      title: paymentSummary?.enabled ? "Paiement securise" : "Validation souple",
+      description: paymentSummary?.enabled
+        ? "Le reglement s'effectue dans un cadre clair, avec recapitulatif et montant visibles."
+        : "Votre selection est envoyee proprement au prestataire pour confirmation rapide.",
     },
     {
       icon: "phone",
@@ -322,7 +350,7 @@ export function StorefrontReassuranceStrip({ paymentSummary }) {
   );
 }
 
-export function StorefrontCategoriesSection({ categories, revealCatalog }) {
+export function StorefrontCategoriesSection({ categories, revealCatalog, isLoading }) {
   return (
     <section id="shop-categories" className="public-shop-section-block public-shop-v6-section">
       <StorefrontSectionHeading
@@ -336,7 +364,9 @@ export function StorefrontCategoriesSection({ categories, revealCatalog }) {
         }
       />
 
-      {categories.length ? (
+      {isLoading ? (
+        <CategorySkeletonGrid />
+      ) : categories.length ? (
         <div className="public-shop-v6-category-grid">
           {categories.map((category) => (
             <article key={category.slug} className="public-shop-v6-category-card">
@@ -648,8 +678,6 @@ export function StorefrontFooter({
   providerLocation,
   publicPath,
   paymentSummary,
-  visibleProductCount,
-  visiblePackCount,
   mapAddress,
 }) {
   return (
@@ -658,13 +686,11 @@ export function StorefrontFooter({
         <article className="public-shop-v6-footer-brand">
           <strong>{storefrontName}</strong>
           <p>
-            Boutique publique de location pensee pour reserver plus sereinement, avec une selection
-            claire, un panier lisible et une validation sans friction.
+            Une boutique de location plus elegante, avec un parcours clair, une selection mise en
+            valeur et un panier lisible jusqu'a la validation.
           </p>
           <span>{providerLocation || "Activite sur demande"}</span>
-          <span>
-            {visibleProductCount} produits publics{visiblePackCount ? ` et ${visiblePackCount} packs` : ""}
-          </span>
+          <span>{paymentSummary?.enabled ? "Reservation et paiement en ligne" : "Validation sur demande"}</span>
         </article>
 
         <article>

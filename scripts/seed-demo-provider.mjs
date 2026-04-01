@@ -57,6 +57,20 @@ const [{ pool, query }, { ensureUserSettingsRecords }, { ensureStorefrontSetting
 const DEMO_EMAIL = String(options.email || "presta@lokify.fr").trim().toLowerCase();
 const DEMO_PASSWORD = String(options.password || "presta");
 const DEMO_BASE_SLUG = "demo-lokify-events";
+const DEMO_MEDIA = {
+  photobooth:
+    "https://images.unsplash.com/photo-1742991106935-eaec5df86ae1?auto=format&fit=crop&fm=jpg&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&ixlib=rb-4.1.0&q=80&w=1600",
+  phone:
+    "https://images.unsplash.com/photo-1746016988321-cfb6bfd1114a?auto=format&fit=crop&fm=jpg&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&ixlib=rb-4.1.0&q=80&w=1600",
+  balloons:
+    "https://images.unsplash.com/photo-1768725845575-e4767b85b151?auto=format&fit=crop&fm=jpg&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&ixlib=rb-4.1.0&q=80&w=1600",
+  cocktail:
+    "https://images.unsplash.com/photo-1752992973821-509319362341?auto=format&fit=crop&fm=jpg&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&ixlib=rb-4.1.0&q=80&w=1600",
+  chairs:
+    "https://images.unsplash.com/photo-1754008354678-0c9fcfd96300?auto=format&fit=crop&fm=jpg&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&ixlib=rb-4.1.0&q=80&w=1600",
+  candy:
+    "https://images.unsplash.com/photo-1767396867485-7e41ee6fec97?auto=format&fit=crop&fm=jpg&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&ixlib=rb-4.1.0&q=80&w=1600",
+};
 
 const buildSvgDataUri = ({
   title,
@@ -105,19 +119,144 @@ const categoryFixtures = [
   ["packs-evenements", "Packs evenements", "Selections prêtes a reserver pour aller plus vite."],
 ];
 
+const categoryImageBySlug = {
+  photobooths: DEMO_MEDIA.photobooth,
+  mobilier: DEMO_MEDIA.chairs,
+  "jeux-animations": DEMO_MEDIA.candy,
+  accessoires: DEMO_MEDIA.phone,
+  "packs-evenements": DEMO_MEDIA.balloons,
+};
+
 const productFixtures = [
-  { key: "aura", name: "Borne Photo Aura", category: "photobooths", stock: 2, price: 349, deposit: 900, featured: true, copy: "Borne photo premium avec eclairage studio et partage instantane.", options: [{ name: "Livraison + installation", price: 90 }, { name: "Fond personnalise", price: 79 }] },
-  { key: "selfie-box", name: "Selfie Box Classique", category: "photobooths", stock: 3, price: 229, deposit: 500, featured: true, copy: "Selfie box simple a prendre en main pour anniversaires et receptions.", options: [{ name: "Impressions illimitees", price: 49 }] },
-  { key: "miroir", name: "Miroir Flash Signature", category: "photobooths", stock: 1, price: 429, deposit: 950, featured: true, copy: "Miroir photo interactif pour un rendu plus scenographique." },
-  { key: "mange-debout", name: "Mange-debout Lino", category: "mobilier", stock: 12, price: 18, deposit: 40, copy: "Mange-debout sobre et stable pour cocktail, vin d'honneur ou salon." },
-  { key: "lounge", name: "Lounge Palette Bois", category: "mobilier", stock: 4, price: 65, deposit: 120, copy: "Salon palette avec coussins clairs pour coin detente chic et decontracte." },
-  { key: "bar-limonade", name: "Bar a limonade", category: "mobilier", stock: 2, price: 120, deposit: 180, copy: "Comptoir mobile pour candy bar, coin boisson ou buffet dessert." },
-  { key: "barbe-a-papa", name: "Machine Barbe a Papa", category: "jeux-animations", stock: 2, price: 95, deposit: 140, featured: true, copy: "Animation gourmande ideale pour anniversaires et family day." },
-  { key: "connect4", name: "Jeu geant Connect 4", category: "jeux-animations", stock: 2, price: 55, deposit: 100, copy: "Jeu geant facile a installer pour animer les temps creux." },
-  { key: "livre-audio", name: "Livre d'or Audio Satin", category: "accessoires", stock: 1, price: 89, deposit: 120, featured: true, copy: "Telephone audio pour laisser des messages vocaux memorables.", options: [{ name: "Montage souvenir", price: 39 }] },
-  { key: "arche-ballons", name: "Arche a ballons Signature", category: "accessoires", stock: 2, price: 140, deposit: 80, copy: "Arche de bienvenue elegante pour entree, candy bar ou photocall." },
-  { key: "mur-selfie", name: "Mur selfie neon", category: "packs-evenements", stock: 1, price: 179, deposit: 250, featured: true, copy: "Mur visuel avec neon pour creer un point photo tres visible." },
-  { key: "pack-deco", name: "Pack deco mariage", category: "packs-evenements", stock: 1, price: 260, deposit: 180, copy: "Selection deco prete a reserver pour habiller l'espace reception." },
+  {
+    key: "aura",
+    name: "Borne Photo Aura",
+    category: "photobooths",
+    stock: 2,
+    price: 349,
+    deposit: 900,
+    featured: true,
+    copy: "Borne photo premium avec eclairage studio et partage instantane.",
+    options: [{ name: "Livraison + installation", price: 90 }, { name: "Fond personnalise", price: 79 }],
+    photos: [DEMO_MEDIA.photobooth, DEMO_MEDIA.balloons],
+  },
+  {
+    key: "selfie-box",
+    name: "Selfie Box Classique",
+    category: "photobooths",
+    stock: 3,
+    price: 229,
+    deposit: 500,
+    featured: true,
+    copy: "Selfie box simple a prendre en main pour anniversaires et receptions.",
+    options: [{ name: "Impressions illimitees", price: 49 }],
+    photos: [DEMO_MEDIA.photobooth, DEMO_MEDIA.cocktail],
+  },
+  {
+    key: "miroir",
+    name: "Miroir Flash Signature",
+    category: "photobooths",
+    stock: 1,
+    price: 429,
+    deposit: 950,
+    featured: true,
+    copy: "Miroir photo interactif pour un rendu plus scenographique.",
+    photos: [DEMO_MEDIA.balloons, DEMO_MEDIA.photobooth],
+  },
+  {
+    key: "mange-debout",
+    name: "Mange-debout Lino",
+    category: "mobilier",
+    stock: 12,
+    price: 18,
+    deposit: 40,
+    copy: "Mange-debout sobre et stable pour cocktail, vin d'honneur ou salon.",
+    photos: [DEMO_MEDIA.cocktail, DEMO_MEDIA.chairs],
+  },
+  {
+    key: "lounge",
+    name: "Lounge Palette Bois",
+    category: "mobilier",
+    stock: 4,
+    price: 65,
+    deposit: 120,
+    copy: "Salon palette avec coussins clairs pour coin detente chic et decontracte.",
+    photos: [DEMO_MEDIA.chairs, DEMO_MEDIA.cocktail],
+  },
+  {
+    key: "bar-limonade",
+    name: "Bar a limonade",
+    category: "mobilier",
+    stock: 2,
+    price: 120,
+    deposit: 180,
+    copy: "Comptoir mobile pour candy bar, coin boisson ou buffet dessert.",
+    photos: [DEMO_MEDIA.cocktail, DEMO_MEDIA.candy],
+  },
+  {
+    key: "barbe-a-papa",
+    name: "Machine Barbe a Papa",
+    category: "jeux-animations",
+    stock: 2,
+    price: 95,
+    deposit: 140,
+    featured: true,
+    copy: "Animation gourmande ideale pour anniversaires et family day.",
+    photos: [DEMO_MEDIA.candy, DEMO_MEDIA.balloons],
+  },
+  {
+    key: "connect4",
+    name: "Jeu geant Connect 4",
+    category: "jeux-animations",
+    stock: 2,
+    price: 55,
+    deposit: 100,
+    copy: "Jeu geant facile a installer pour animer les temps creux.",
+    photos: [DEMO_MEDIA.balloons, DEMO_MEDIA.candy],
+  },
+  {
+    key: "livre-audio",
+    name: "Livre d'or Audio Satin",
+    category: "accessoires",
+    stock: 1,
+    price: 89,
+    deposit: 120,
+    featured: true,
+    copy: "Telephone audio pour laisser des messages vocaux memorables.",
+    options: [{ name: "Montage souvenir", price: 39 }],
+    photos: [DEMO_MEDIA.phone, DEMO_MEDIA.chairs],
+  },
+  {
+    key: "arche-ballons",
+    name: "Arche a ballons Signature",
+    category: "accessoires",
+    stock: 2,
+    price: 140,
+    deposit: 80,
+    copy: "Arche de bienvenue elegante pour entree, candy bar ou photocall.",
+    photos: [DEMO_MEDIA.balloons, DEMO_MEDIA.cocktail],
+  },
+  {
+    key: "mur-selfie",
+    name: "Mur selfie neon",
+    category: "packs-evenements",
+    stock: 1,
+    price: 179,
+    deposit: 250,
+    featured: true,
+    copy: "Mur visuel avec neon pour creer un point photo tres visible.",
+    photos: [DEMO_MEDIA.photobooth, DEMO_MEDIA.balloons],
+  },
+  {
+    key: "pack-deco",
+    name: "Pack deco mariage",
+    category: "packs-evenements",
+    stock: 1,
+    price: 260,
+    deposit: 180,
+    copy: "Selection deco prete a reserver pour habiller l'espace reception.",
+    photos: [DEMO_MEDIA.chairs, DEMO_MEDIA.balloons],
+  },
 ];
 
 const createOrUpdateDemoProvider = async () => {
@@ -245,10 +384,12 @@ const clearDemoData = async (providerId) => {
 
 const createCategories = async (providerId) => {
   for (const [slug, name, description] of categoryFixtures) {
-    const image = buildSvgDataUri({
-      title: name,
-      subtitle: "Collection demo",
-    });
+    const image =
+      categoryImageBySlug[slug] ||
+      buildSvgDataUri({
+        title: name,
+        subtitle: "Collection demo",
+      });
 
     await upsertCatalogCategory(providerId, {
       slug,
@@ -265,8 +406,18 @@ const createProducts = async (providerId) => {
   const productsByKey = {};
 
   for (const fixture of productFixtures) {
-    const imageOne = buildSvgDataUri({ title: fixture.name, subtitle: "Demo storefront" });
-    const imageTwo = buildSvgDataUri({ title: fixture.name, subtitle: "Vue detail", accent: "#3e1579", accentSoft: "#2f9cdf", background: "#f7f2ff" });
+    const imageOne =
+      fixture.photos?.[0] ||
+      buildSvgDataUri({ title: fixture.name, subtitle: "Demo storefront" });
+    const imageTwo =
+      fixture.photos?.[1] ||
+      buildSvgDataUri({
+        title: fixture.name,
+        subtitle: "Vue detail",
+        accent: "#3e1579",
+        accentSoft: "#2f9cdf",
+        background: "#f7f2ff",
+      });
 
     const created = await createCatalogProduct(providerId, {
       item: {

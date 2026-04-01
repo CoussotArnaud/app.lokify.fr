@@ -360,8 +360,8 @@ export default function PublicStorefrontPage() {
   const paymentSummary = shopState.data?.online_payment || {
     enabled: false,
     mode: "request",
-    label: "Paiement en ligne desactive",
-    description: "La boutique fonctionne en demande de reservation, sans paiement en ligne.",
+    label: "Validation sur demande",
+    description: "Composez votre selection puis envoyez-la au prestataire pour confirmation.",
   };
   const checkoutActionLabel = paymentSummary.enabled
     ? "Finaliser et payer"
@@ -691,12 +691,12 @@ export default function PublicStorefrontPage() {
         ? "warning"
         : "success";
   const cartStatusLabel = !cartHasEntries
-    ? "Panier vide"
+    ? "Pret a composer"
     : uniqueAvailabilityIssues.length
       ? "Verification requise"
       : shopState.loading
-        ? "Mise a jour"
-        : "Disponible";
+        ? "Analyse en cours"
+        : "Panier pret";
   const filteredProducts =
     activeCategoryFilter === "all"
       ? products
@@ -1098,7 +1098,11 @@ export default function PublicStorefrontPage() {
         />
 
         <StorefrontReassuranceStrip paymentSummary={paymentSummary} />
-        <StorefrontCategoriesSection categories={categories} revealCatalog={revealCatalog} />
+        <StorefrontCategoriesSection
+          categories={categories}
+          revealCatalog={revealCatalog}
+          isLoading={shopState.loading}
+        />
         <StorefrontFeaturedSection
           featuredProducts={featuredProducts}
           visibleFeaturedProducts={visibleFeaturedProducts}
@@ -1170,8 +1174,6 @@ export default function PublicStorefrontPage() {
           providerLocation={providerLocation}
           publicPath={publicPath}
           paymentSummary={paymentSummary}
-          visibleProductCount={visibleProductCount}
-          visiblePackCount={visiblePackCount}
           mapAddress={mapAddress}
         />
 

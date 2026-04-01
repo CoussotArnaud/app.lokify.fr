@@ -1,6 +1,13 @@
 import { getSessionToken } from "./session";
 
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+const defaultApiUrl =
+  typeof window !== "undefined"
+    ? "/api"
+    : process.env.NODE_ENV === "production"
+      ? "/api"
+      : "http://localhost:4000/api";
+
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || defaultApiUrl;
 const normalizedApiUrl = rawApiUrl.replace(/\/+$/, "");
 export const API_URL = /\/api$/i.test(normalizedApiUrl)
   ? normalizedApiUrl
