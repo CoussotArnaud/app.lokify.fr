@@ -1085,13 +1085,9 @@ export default function PublicStorefrontPage() {
           storefrontLiveStatus={storefrontLiveStatus}
           providerLocation={providerLocation}
           heroImage={heroImage}
-          products={products}
-          categories={categories}
-          packs={packs}
           bookingForm={bookingForm}
           onBookingFieldChange={handleBookingFieldChange}
           paymentSummary={paymentSummary}
-          visibleProductCount={visibleProductCount}
           revealCatalog={revealCatalog}
           scrollToSection={scrollToSection}
           isLoading={shopState.loading}
@@ -1150,7 +1146,6 @@ export default function PublicStorefrontPage() {
           addProductToCart={addProductToCart}
           addPackToCart={addPackToCart}
           bookingForm={bookingForm}
-          onBookingFieldChange={handleBookingFieldChange}
           paymentSummary={paymentSummary}
           totalEstimatedAmount={totalEstimatedAmount}
           totalEstimatedDeposit={totalEstimatedDeposit}
@@ -1168,6 +1163,7 @@ export default function PublicStorefrontPage() {
           updateCartEntryQuantity={updateCartEntryQuantity}
           productById={productById}
           openProductConfigurator={openProductConfigurator}
+          scrollToSection={scrollToSection}
         />
         <StorefrontFooter
           storefrontName={storefrontName}

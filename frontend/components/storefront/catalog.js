@@ -39,6 +39,28 @@ const CatalogMetricCard = ({ icon, label, value, helper }) => (
   </article>
 );
 
+const formatBookingDate = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(`${value}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+};
+
+const formatBookingSlot = (dateValue, timeValue) => {
+  const formattedDate = formatBookingDate(dateValue);
+  return timeValue ? `${formattedDate} - ${timeValue}` : formattedDate;
+};
+
 const buildCatalogMetrics = ({
   visibleProductCount,
   visiblePackCount,
@@ -295,7 +317,6 @@ export default function StorefrontCatalogStage({
   addProductToCart,
   addPackToCart,
   bookingForm,
-  onBookingFieldChange,
   paymentSummary,
   totalEstimatedAmount,
   totalEstimatedDeposit,
@@ -313,6 +334,7 @@ export default function StorefrontCatalogStage({
   updateCartEntryQuantity,
   productById,
   openProductConfigurator,
+  scrollToSection,
 }) {
   const catalogMetrics = buildCatalogMetrics({
     visibleProductCount,
@@ -455,68 +477,39 @@ export default function StorefrontCatalogStage({
           <section className="public-shop-sidebar-card public-shop-v6-sidebar-card public-shop-v6-booking-card">
             <div className="public-shop-v6-card-head">
               <div>
-                <p className="eyebrow">Vos dates</p>
-                <h3>Verifiez la bonne periode</h3>
-                <p>Les disponibilites et le panier se recalculent selon vos dates de location.</p>
+                <p className="eyebrow">Votre periode</p>
+                <h3>Dates et horaires selectionnes</h3>
+                <p>Le catalogue et le panier s'actualisent automatiquement selon cette periode.</p>
               </div>
+              <StatusPill tone={shopState.loading ? "warning" : "success"}>
+                {shopState.loading ? "Mise a jour..." : "A jour"}
+              </StatusPill>
             </div>
 
-            <div className="public-shop-v6-sidebar-fields">
-              <div className="field">
-                <label htmlFor="public-storefront-start-date">Date de debut</label>
-                <input
-                  id="public-storefront-start-date"
-                  type="date"
-                  value={bookingForm.start_date}
-                  onChange={(event) => onBookingFieldChange("start_date", event.target.value)}
-                />
+            <div className="public-shop-v6-period-summary">
+              <div className="public-shop-v6-period-item">
+                <span>Debut</span>
+                <strong>{formatBookingSlot(bookingForm.start_date, bookingForm.start_time)}</strong>
               </div>
 
-              <div className="field">
-                <label htmlFor="public-storefront-start-time">Heure</label>
-                <input
-                  id="public-storefront-start-time"
-                  type="time"
-                  value={bookingForm.start_time}
-                  onChange={(event) => onBookingFieldChange("start_time", event.target.value)}
-                />
+              <div className="public-shop-v6-period-item">
+                <span>Fin</span>
+                <strong>{formatBookingSlot(bookingForm.end_date, bookingForm.end_time)}</strong>
               </div>
 
-              <div className="field">
-                <label htmlFor="public-storefront-end-date">Date de fin</label>
-                <input
-                  id="public-storefront-end-date"
-                  type="date"
-                  value={bookingForm.end_date}
-                  onChange={(event) => onBookingFieldChange("end_date", event.target.value)}
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="public-storefront-end-time">Heure</label>
-                <input
-                  id="public-storefront-end-time"
-                  type="time"
-                  value={bookingForm.end_time}
-                  onChange={(event) => onBookingFieldChange("end_time", event.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="public-shop-v6-summary-list">
-              <div className="public-shop-v6-summary-row">
-                <span>Periode</span>
-                <strong>{compactPeriodLabel}</strong>
-              </div>
-              <div className="public-shop-v6-summary-row">
+              <div className="public-shop-v6-period-item">
                 <span>Duree</span>
                 <strong>{durationDays} jour(s)</strong>
               </div>
-              <div className="public-shop-v6-summary-row">
-                <span>Disponibilites</span>
-                <strong>{shopState.loading ? "Analyse..." : "Actualisees"}</strong>
-              </div>
             </div>
+
+            <button
+              type="button"
+              className="button ghost public-shop-v6-sidebar-cta"
+              onClick={() => scrollToSection("shop-reservation")}
+            >
+              Modifier mes dates
+            </button>
           </section>
 
           <section className="public-shop-sidebar-card public-shop-v6-sidebar-card">

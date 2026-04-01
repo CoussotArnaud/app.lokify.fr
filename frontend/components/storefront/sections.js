@@ -8,54 +8,6 @@ import Icon from "../icon";
 import StatusPill from "../status-pill";
 import StorefrontEmptyState from "./empty-state";
 
-const buildHeroMetrics = ({
-  products = [],
-  categories = [],
-  packs = [],
-  paymentSummary = null,
-  providerLocation = "",
-  isLoading = false,
-}) => {
-  const startingPrice = [...products]
-    .map((product) => Number(product?.price || 0))
-    .filter((price) => Number.isFinite(price) && price > 0)
-    .sort((left, right) => left - right)[0];
-  const offerCount = products.length + packs.length;
-  const selectionValue = isLoading
-    ? "Selection en cours"
-    : offerCount > 0
-      ? `${offerCount} experiences`
-      : "Sur mesure";
-  const universeValue = isLoading
-    ? "Catalogue en cours"
-    : categories.length > 0
-      ? `${categories.length} univers`
-      : "Selection sur demande";
-
-  return [
-    {
-      label: "A partir de",
-      value: startingPrice ? formatCurrency(startingPrice) : "Sur devis",
-    },
-    {
-      label: "Selection",
-      value: selectionValue,
-    },
-    {
-      label: "Zone",
-      value: providerLocation || "Sur devis",
-    },
-    {
-      label: "Validation",
-      value: paymentSummary?.enabled ? "Reservation & paiement" : "Demande accompagnee",
-    },
-    {
-      label: "Univers",
-      value: universeValue,
-    },
-  ];
-};
-
 const CategorySkeletonGrid = () => (
   <div className="public-shop-v6-category-grid" aria-hidden="true">
     {Array.from({ length: 3 }).map((_, index) => (
@@ -116,7 +68,7 @@ export function StorefrontTopbar({
             className="button primary"
             onClick={() => scrollToSection("shop-reservation")}
           >
-            Reserver
+            Louer
           </button>
         </div>
       </div>
@@ -129,73 +81,50 @@ export function StorefrontHero({
   storefrontLiveStatus,
   providerLocation,
   heroImage,
-  products,
-  categories,
-  packs,
   bookingForm,
   onBookingFieldChange,
   paymentSummary,
-  visibleProductCount,
   revealCatalog,
   scrollToSection,
   isLoading,
 }) {
-  const heroMetrics = buildHeroMetrics({
-    products,
-    categories,
-    packs,
-    paymentSummary,
-    providerLocation,
-    isLoading,
-  });
+  const hasMeaningfulLocation =
+    providerLocation && providerLocation.trim() && providerLocation !== "Boutique publique";
+  const heroLocationLabel = hasMeaningfulLocation ? providerLocation : "Service sur reservation";
+  const heroMediaCaption = hasMeaningfulLocation ? providerLocation : storefrontName;
+  const handleReservationCta = () => {
+    revealCatalog("all");
+    scrollToSection("storefront-catalogue");
+  };
 
   return (
     <section className="public-shop-v6-hero" id="shop-hero">
       <div className="public-shop-v6-hero-copy">
-        <div className="public-shop-v6-hero-copy-top">
+        <div className="public-shop-v6-heading-stack public-shop-v6-hero-copy-top">
+          <p className="public-shop-v6-hero-intro">Bienvenue chez</p>
+          <h1>{storefrontName}</h1>
+
           <div className="public-shop-v6-badge-row">
-            <span className="public-shop-v6-badge">
-              <Icon name="shield" size={14} />
-              Location evenementielle
-            </span>
             <StatusPill tone={storefrontLiveStatus.tone}>{storefrontLiveStatus.label}</StatusPill>
-          </div>
-
-          <div className="public-shop-v6-heading-stack">
-            <p className="eyebrow">Location evenementielle premium</p>
-            <h1>Donnez du relief a votre evenement avec une reservation simple et haut de gamme.</h1>
-            <p className="public-shop-v6-hero-description">
-              {storefrontName} met en scene une selection pensee pour reserver vite, comparer
-              sereinement les produits et valider votre projet avec un panier clair des la
-              premiere visite.
-            </p>
-          </div>
-
-          <div className="public-shop-v6-hero-actions">
-            <button type="button" className="button primary" onClick={() => revealCatalog("all")}>
-              Voir les disponibilites
-            </button>
-            <button
-              type="button"
-              className="button ghost"
-              onClick={() => scrollToSection("shop-categories")}
-            >
-              Explorer la selection
-            </button>
-          </div>
-
-          <div className="public-shop-v6-hero-meta">
-            <span>
-              <Icon name="location" size={16} />
-              {providerLocation || "Partout en France sur demande"}
+            <span className="public-shop-v6-badge">
+              <Icon name={paymentSummary?.enabled ? "shield" : "document"} size={14} />
+              {paymentSummary?.enabled ? "Paiement securise" : "Reservation sur demande"}
             </span>
-            <span>
-              <Icon name="shield" size={16} />
-              Validation et recapitulatif clairs
-            </span>
+          </div>
+
+          <p className="public-shop-v6-hero-description">
+            Choisissez vos dates et vos horaires des votre arrivee pour afficher la selection
+            disponible, composer votre panier et avancer sereinement dans votre projet.
+          </p>
+
+          <div className="public-shop-v6-hero-support">
             <span>
               <Icon name="truck" size={16} />
-              Livraison ou retrait selon votre projet
+              Livraison ou retrait selon votre evenement
+            </span>
+            <span>
+              <Icon name="location" size={16} />
+              {heroLocationLabel}
             </span>
           </div>
         </div>
@@ -203,16 +132,12 @@ export function StorefrontHero({
         <section id="shop-reservation" className="public-shop-v6-reservation-card">
           <div className="public-shop-v6-reservation-head">
             <div>
-              <p className="eyebrow">Preparation rapide</p>
-              <h2>Choisissez votre periode</h2>
+              <p className="eyebrow">Reservez en 2 minutes !</p>
+              <h2>Choisissez vos dates et horaires de location</h2>
               <p>
-                Indiquez vos dates et vos horaires souhaites pour consulter la selection
-                disponible et composer votre panier avec une vision nette des disponibilites.
+                Renseignez votre periode pour voir tout de suite les disponibilites et demarrer
+                votre selection dans de bonnes conditions.
               </p>
-            </div>
-            <div className="public-shop-v6-reservation-status">
-              <span>{paymentSummary?.enabled ? "Validation immediate" : "Validation accompagnee"}</span>
-              {isLoading ? <strong>Actualisation en cours</strong> : <strong>Disponibilites verifiees</strong>}
             </div>
           </div>
 
@@ -259,27 +184,21 @@ export function StorefrontHero({
           </div>
 
           <div className="public-shop-v6-reservation-foot">
-            <div className="public-shop-v6-reservation-points">
-              <span>
-                <Icon name="clock" size={16} />
-                Reponse rapide
-              </span>
-              <span>
-                <Icon name="shield" size={16} />
-                Parcours clair
-              </span>
-              <span>
-                <Icon name="truck" size={16} />
-                Logistique visible
-              </span>
-            </div>
             <button
               type="button"
               className="button primary public-shop-v6-reservation-cta"
-              onClick={() => revealCatalog("all")}
+              onClick={handleReservationCta}
             >
-              Voir la selection disponible
+              Louer
             </button>
+            <div className="public-shop-v6-reservation-status" aria-live="polite">
+              <span>{paymentSummary?.enabled ? "Paiement en ligne" : "Validation accompagnee"}</span>
+              <strong>
+                {isLoading
+                  ? "Mise a jour des disponibilites..."
+                  : "Disponibilites actualisees selon vos dates"}
+              </strong>
+            </div>
           </div>
         </section>
       </div>
@@ -296,13 +215,9 @@ export function StorefrontHero({
           </div>
         )}
 
-        <div className="public-shop-v6-hero-overlay">
-          {heroMetrics.map((metric) => (
-            <article key={metric.label} className="public-shop-v6-hero-metric">
-              <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
-            </article>
-          ))}
+        <div className="public-shop-v6-hero-media-caption">
+          <span>Evenements, mariages, anniversaires</span>
+          <strong>{heroMediaCaption}</strong>
         </div>
       </div>
     </section>
@@ -313,25 +228,25 @@ export function StorefrontReassuranceStrip({ paymentSummary }) {
   const cards = [
     {
       icon: "shield",
-      title: "Parcours rassurant",
-      description: "Dates, panier et recapitulatif restent lisibles a chaque etape.",
-    },
-    {
-      icon: "truck",
-      title: "Livraison ou retrait",
-      description: "Les modalites logistiques sont mises en avant sans alourdir l'experience.",
+      title: "Avis clients",
+      description: "Une experience claire et rassurante du choix des dates a la validation.",
     },
     {
       icon: paymentSummary?.enabled ? "euro" : "document",
       title: paymentSummary?.enabled ? "Paiement securise" : "Validation souple",
       description: paymentSummary?.enabled
-        ? "Le reglement s'effectue dans un cadre clair, avec recapitulatif et montant visibles."
-        : "Votre selection est envoyee proprement au prestataire pour confirmation rapide.",
+        ? "Reglement en ligne avec recapitulatif clair et montant visible."
+        : "Votre demande est transmise rapidement au prestataire pour confirmation.",
+    },
+    {
+      icon: "truck",
+      title: "Livraison possible",
+      description: "Retrait ou livraison selon votre projet et la zone d'intervention.",
     },
     {
       icon: "phone",
-      title: "Accompagnement humain",
-      description: "Une question, une contrainte ou un besoin specifique : le contact reste simple.",
+      title: "Une question ?",
+      description: "Une reponse rapide et un accompagnement humain si besoin.",
     },
   ];
 
@@ -342,8 +257,10 @@ export function StorefrontReassuranceStrip({ paymentSummary }) {
           <div className="public-shop-v6-reassurance-icon" aria-hidden="true">
             <Icon name={card.icon} size={18} />
           </div>
-          <strong>{card.title}</strong>
-          <span>{card.description}</span>
+          <div className="public-shop-v6-reassurance-copy">
+            <strong>{card.title}</strong>
+            <span>{card.description}</span>
+          </div>
         </article>
       ))}
     </section>
