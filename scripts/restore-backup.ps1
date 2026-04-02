@@ -1,44 +1,69 @@
-$ErrorActionPreference = "Stop"
-Set-StrictMode -Version Latest
-
 param(
   [Parameter(Position = 0)]
   [string]$BackupName,
   [string]$BackupPath,
-  [switch]$SkipSafetyBackup
+  [string]$TargetRoot,
+  [switch]$SkipSafetyBackup,
+  [switch]$ValidateOnly
 )
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $projectRoot = Split-Path -Path $PSScriptRoot -Parent
 $backupRoot = Join-Path $projectRoot "SAUVEGARDE"
+$legacyRoot = Join-Path $backupRoot "legacy"
 $resolvedProjectRoot = (Resolve-Path $projectRoot).Path
-$resolvedBackupRoot = (Resolve-Path $backupRoot).Path
 
-$requiredDirectories = @(
-  "backend",
-  "database",
-  "electron",
-  "frontend",
-  "scripts"
+$excludedTopLevelDirectories = @(
+  ".git",
+  "SAUVEGARDE",
+  "node_modules"
 )
 
-$replaceDirectories = @(
-  "backend",
-  "database",
-  "electron",
-  "frontend"
+$excludedTopLevelDirectoryPatterns = @(
+  ".tmp*"
 )
 
-$optionalDirectories = @(
-  ".vercel",
-  ".tmp-vercel-backend-link",
-  ".tmp-vercel-frontend-link"
+$excludedRootFilePatterns = @(
+  "*.log",
+  ".tmp-*",
+  "lokify-*.log"
 )
 
-$requiredRootFiles = @(
-  "package.json",
-  "package-lock.json",
-  "README.md"
-)
+function Test-ExcludedTopLevelDirectory {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$DirectoryName
+  )
+
+  if ($DirectoryName -in $excludedTopLevelDirectories) {
+    return $true
+  }
+
+  foreach ($pattern in $excludedTopLevelDirectoryPatterns) {
+    if ($DirectoryName -like $pattern) {
+      return $true
+    }
+  }
+
+  return $false
+}
+
+function Test-ExcludedRootFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FileName
+  )
+
+  foreach ($pattern in $excludedRootFilePatterns) {
+    if ($FileName -like $pattern) {
+      return $true
+    }
+  }
+
+  return $false
+}
 
 function Assert-PathWithinProject {
   param(
@@ -58,8 +83,7 @@ function Invoke-RobocopyDirectory {
     [Parameter(Mandatory = $true)]
     [string]$Source,
     [Parameter(Mandatory = $true)]
-    [string]$Destination,
-    [switch]$Mirror
+    [string]$Destination
   )
 
   New-Item -ItemType Directory -Force -Path $Destination | Out-Null
@@ -78,10 +102,6 @@ function Invoke-RobocopyDirectory {
     "/NP"
   )
 
-  if ($Mirror) {
-    $arguments += "/MIR"
-  }
-
   & robocopy @arguments | Out-Null
 
   if ($LASTEXITCODE -ge 8) {
@@ -89,90 +109,227 @@ function Invoke-RobocopyDirectory {
   }
 }
 
-if ([string]::IsNullOrWhiteSpace($BackupPath)) {
-  if ([string]::IsNullOrWhiteSpace($BackupName)) {
-    throw "Provide -BackupName or -BackupPath. Example: -BackupName sauvegarde-2026-03-31-201534"
+function Resolve-RequestedBackupPath {
+  param(
+    [string]$RequestedBackupName,
+    [string]$RequestedBackupPath
+  )
+
+  if (-not [string]::IsNullOrWhiteSpace($RequestedBackupPath)) {
+    if (Test-Path -LiteralPath $RequestedBackupPath) {
+      return (Resolve-Path -LiteralPath $RequestedBackupPath).Path
+    }
+
+    $candidateFromRoot = Join-Path $backupRoot $RequestedBackupPath
+    if (Test-Path -LiteralPath $candidateFromRoot) {
+      return (Resolve-Path -LiteralPath $candidateFromRoot).Path
+    }
+
+    $candidateFromLegacy = Join-Path $legacyRoot $RequestedBackupPath
+    if (Test-Path -LiteralPath $candidateFromLegacy) {
+      return (Resolve-Path -LiteralPath $candidateFromLegacy).Path
+    }
+
+    throw "Backup path not found: $RequestedBackupPath"
   }
 
-  $BackupPath = Join-Path $backupRoot $BackupName
+  if ([string]::IsNullOrWhiteSpace($RequestedBackupName)) {
+    throw "Provide -BackupName or -BackupPath. Example: -BackupName sauvegarde-2026-04-02-120000"
+  }
+
+  $candidates = @(
+    (Join-Path $backupRoot $RequestedBackupName),
+    (Join-Path $backupRoot "$RequestedBackupName.zip"),
+    (Join-Path $legacyRoot $RequestedBackupName),
+    (Join-Path $legacyRoot "$RequestedBackupName.zip")
+  )
+
+  foreach ($candidatePath in $candidates) {
+    if (Test-Path -LiteralPath $candidatePath) {
+      return (Resolve-Path -LiteralPath $candidatePath).Path
+    }
+  }
+
+  throw "Backup not found for '$RequestedBackupName'"
 }
 
-if (-not (Test-Path -LiteralPath $BackupPath -PathType Container)) {
-  throw "Backup folder not found: $BackupPath"
-}
+function Get-BackupManifest {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$WorkingRoot
+  )
 
-$resolvedBackupPath = (Resolve-Path $BackupPath).Path
+  $metadataPath = Join-Path $WorkingRoot "backup-metadata.json"
 
-if (-not $resolvedBackupPath.StartsWith($resolvedBackupRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-  throw "Backup must live inside $resolvedBackupRoot"
-}
+  if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+    return Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+  }
 
-foreach ($directoryName in $requiredDirectories) {
-  $sourcePath = Join-Path $resolvedBackupPath $directoryName
+  $fallbackDirectories = Get-ChildItem -LiteralPath $WorkingRoot -Force -Directory |
+    Where-Object { $_.Name -ne "backup-metadata.json" } |
+    Sort-Object Name |
+    Select-Object -ExpandProperty Name
 
-  if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
-    throw "Backup validation failed: missing directory '$directoryName' in $resolvedBackupPath"
+  $fallbackFiles = Get-ChildItem -LiteralPath $WorkingRoot -Force -File |
+    Where-Object { $_.Name -ne "backup-metadata.json" } |
+    Sort-Object Name |
+    Select-Object -ExpandProperty Name
+
+  return [PSCustomObject]@{
+    schema_version = 1
+    format = "folder"
+    backup_name = Split-Path -Path $WorkingRoot -Leaf
+    included_directories = $fallbackDirectories
+    included_root_files = $fallbackFiles
+    required_directories = @("backend", "database", "electron", "frontend", "scripts")
+    required_root_files = @("AGENTS.md", "README.md", "package-lock.json", "package.json")
   }
 }
 
-foreach ($fileName in $requiredRootFiles) {
-  $sourcePath = Join-Path $resolvedBackupPath $fileName
+function Test-BackupDirectoryExists {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$WorkingRoot,
+    [Parameter(Mandatory = $true)]
+    [string]$DirectoryName
+  )
 
-  if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-    throw "Backup validation failed: missing file '$fileName' in $resolvedBackupPath"
-  }
+  return Test-Path -LiteralPath (Join-Path $WorkingRoot $DirectoryName) -PathType Container
 }
 
-if (-not $SkipSafetyBackup) {
-  $backupScript = Join-Path $PSScriptRoot "create-backup.ps1"
-  & powershell -ExecutionPolicy Bypass -File $backupScript | Out-Null
+function Test-BackupFileExists {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$WorkingRoot,
+    [Parameter(Mandatory = $true)]
+    [string]$FileName
+  )
+
+  return Test-Path -LiteralPath (Join-Path $WorkingRoot $FileName) -PathType Leaf
 }
 
-foreach ($directoryName in $replaceDirectories) {
-  $targetPath = Join-Path $projectRoot $directoryName
-  Assert-PathWithinProject -Path $targetPath
+New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $legacyRoot | Out-Null
 
-  if (Test-Path -LiteralPath $targetPath -PathType Container) {
-    Remove-Item -LiteralPath $targetPath -Recurse -Force
+$resolvedBackupPath = Resolve-RequestedBackupPath -RequestedBackupName $BackupName -RequestedBackupPath $BackupPath
+$resolvedTargetRoot = if ([string]::IsNullOrWhiteSpace($TargetRoot)) { $resolvedProjectRoot } else { [System.IO.Path]::GetFullPath($TargetRoot) }
+$workingRoot = $resolvedBackupPath
+$extractedWorkingRoot = $null
+$manifest = $null
+
+Assert-PathWithinProject -Path $resolvedTargetRoot
+
+try {
+  if ((Get-Item -LiteralPath $resolvedBackupPath).PSIsContainer) {
+    $workingRoot = $resolvedBackupPath
+  } else {
+    if ([System.IO.Path]::GetExtension($resolvedBackupPath) -ne ".zip") {
+      throw "Unsupported backup format: $resolvedBackupPath"
+    }
+
+    $extractedWorkingRoot = Join-Path $backupRoot (".restore-source-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $extractedWorkingRoot | Out-Null
+    Expand-Archive -LiteralPath $resolvedBackupPath -DestinationPath $extractedWorkingRoot -Force
+    $workingRoot = $extractedWorkingRoot
   }
 
-  Invoke-RobocopyDirectory -Source (Join-Path $resolvedBackupPath $directoryName) -Destination $targetPath
-}
+  $manifest = Get-BackupManifest -WorkingRoot $workingRoot
 
-foreach ($directoryName in $optionalDirectories) {
-  $sourcePath = Join-Path $resolvedBackupPath $directoryName
-  $targetPath = Join-Path $projectRoot $directoryName
-  Assert-PathWithinProject -Path $targetPath
-
-  if (Test-Path -LiteralPath $targetPath -PathType Container) {
-    Remove-Item -LiteralPath $targetPath -Recurse -Force
+  foreach ($directoryName in @($manifest.required_directories)) {
+    if (-not (Test-BackupDirectoryExists -WorkingRoot $workingRoot -DirectoryName $directoryName)) {
+      throw "Backup validation failed: missing directory '$directoryName' in $workingRoot"
+    }
   }
 
-  if (Test-Path -LiteralPath $sourcePath -PathType Container) {
+  foreach ($fileName in @($manifest.required_root_files)) {
+    if (-not (Test-BackupFileExists -WorkingRoot $workingRoot -FileName $fileName)) {
+      throw "Backup validation failed: missing file '$fileName' in $workingRoot"
+    }
+  }
+
+  if ($ValidateOnly) {
+    [PSCustomObject]@{
+      backup_name = [string]$manifest.backup_name
+      backup_source = $resolvedBackupPath
+      format = [string]$manifest.format
+      validated_at = (Get-Date).ToString("o")
+      included_directories = @($manifest.included_directories)
+      included_root_files = @($manifest.included_root_files)
+      target_root = $resolvedTargetRoot
+      validation_only = $true
+    }
+
+    return
+  }
+
+  $isRestoringIntoProjectRoot = $resolvedTargetRoot.Equals($resolvedProjectRoot, [System.StringComparison]::OrdinalIgnoreCase)
+  $safetyBackupName = ""
+  $safetyBackupPath = ""
+
+  if ($isRestoringIntoProjectRoot -and -not $SkipSafetyBackup) {
+    $backupScript = Join-Path $PSScriptRoot "create-backup.ps1"
+    $safetyBackup = & $backupScript
+    $safetyBackupName = [string]$safetyBackup.backup_name
+    $safetyBackupPath = [string]$safetyBackup.backup_path
+  }
+
+  if ($isRestoringIntoProjectRoot) {
+    Get-ChildItem -LiteralPath $resolvedProjectRoot -Force -Directory |
+      Where-Object { -not (Test-ExcludedTopLevelDirectory -DirectoryName $_.Name) } |
+      ForEach-Object {
+        if ($_.Name -notin @($manifest.included_directories)) {
+          Remove-Item -LiteralPath $_.FullName -Recurse -Force
+        }
+      }
+
+    Get-ChildItem -LiteralPath $resolvedProjectRoot -Force -File |
+      Where-Object { -not (Test-ExcludedRootFile -FileName $_.Name) } |
+      ForEach-Object {
+        if ($_.Name -notin @($manifest.included_root_files)) {
+          Remove-Item -LiteralPath $_.FullName -Force
+        }
+      }
+  } else {
+    if (Test-Path -LiteralPath $resolvedTargetRoot -PathType Container) {
+      Remove-Item -LiteralPath $resolvedTargetRoot -Recurse -Force
+    }
+
+    New-Item -ItemType Directory -Force -Path $resolvedTargetRoot | Out-Null
+  }
+
+  foreach ($directoryName in @($manifest.included_directories)) {
+    $sourcePath = Join-Path $workingRoot $directoryName
+    $targetPath = Join-Path $resolvedTargetRoot $directoryName
+    Assert-PathWithinProject -Path $targetPath
+
+    if (Test-Path -LiteralPath $targetPath -PathType Container) {
+      Remove-Item -LiteralPath $targetPath -Recurse -Force
+    }
+
     Invoke-RobocopyDirectory -Source $sourcePath -Destination $targetPath
   }
-}
 
-$scriptsSourcePath = Join-Path $resolvedBackupPath "scripts"
-$scriptsTargetPath = Join-Path $projectRoot "scripts"
-Assert-PathWithinProject -Path $scriptsTargetPath
-Invoke-RobocopyDirectory -Source $scriptsSourcePath -Destination $scriptsTargetPath
-
-Get-ChildItem -LiteralPath $resolvedBackupPath -Force -File |
-  Where-Object { $_.Name -ne "backup-metadata.json" } |
-  ForEach-Object {
-    $targetPath = Join-Path $projectRoot $_.Name
+  foreach ($fileName in @($manifest.included_root_files)) {
+    $sourcePath = Join-Path $workingRoot $fileName
+    $targetPath = Join-Path $resolvedTargetRoot $fileName
     Assert-PathWithinProject -Path $targetPath
-    Copy-Item -LiteralPath $_.FullName -Destination $targetPath -Force
+    Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
   }
 
-$summary = [PSCustomObject]@{
-  restored_from = $resolvedBackupPath
-  restored_at = (Get-Date).ToString("o")
-  safety_backup_created = (-not $SkipSafetyBackup)
-  replaced_directories = $replaceDirectories
-  restored_optional_directories = $optionalDirectories
-  restored_scripts = $true
+  [PSCustomObject]@{
+    restored_from = $resolvedBackupPath
+    backup_name = [string]$manifest.backup_name
+    target_root = $resolvedTargetRoot
+    restored_at = (Get-Date).ToString("o")
+    validation_only = $false
+    safety_backup_created = ($isRestoringIntoProjectRoot -and -not $SkipSafetyBackup)
+    safety_backup_name = $safetyBackupName
+    safety_backup_path = $safetyBackupPath
+    restored_directories = @($manifest.included_directories)
+    restored_root_files = @($manifest.included_root_files)
+  }
+} finally {
+  if ($null -ne $extractedWorkingRoot -and (Test-Path -LiteralPath $extractedWorkingRoot)) {
+    Remove-Item -LiteralPath $extractedWorkingRoot -Recurse -Force
+  }
 }
-
-$summary | ConvertTo-Json -Depth 5

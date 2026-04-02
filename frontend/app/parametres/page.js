@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/app-shell";
@@ -11,7 +11,17 @@ import StatusPill from "../../components/status-pill";
 import { useAuth } from "../../components/auth-provider";
 import { apiRequest } from "../../lib/api";
 import { getWorkspaceUserLabel, isSuperAdmin } from "../../lib/access";
+import {
+  MAX_CATALOG_IMAGE_SIZE_BYTES,
+  MIN_CATALOG_IMAGE_HEIGHT,
+  MIN_CATALOG_IMAGE_WIDTH,
+  prepareCatalogImage,
+} from "../../lib/catalog-image";
 import { defaultReservationStatuses } from "../../lib/lokify-data";
+import {
+  hasActiveStorefrontGoogleReviews,
+  validateStorefrontGoogleReviewsUrl,
+} from "../../lib/storefront-google-reviews";
 import { buildStorefrontPath, buildStorefrontUrl } from "../../lib/storefront";
 
 const initialPlatformForm = {
@@ -37,7 +47,71 @@ const initialStorefrontForm = {
   map_address: "",
   reviews_enabled: false,
   reviews_url: "",
+  hero_images: [],
 };
+
+const MAX_STOREFRONT_HERO_IMAGES = 5;
+
+const buildStorefrontSettingsForm = (storefrontSettings = null) => ({
+  slug: storefrontSettings?.slug || "",
+  is_published: Boolean(storefrontSettings?.is_published),
+  reservation_approval_mode: storefrontSettings?.reservation_approval_mode || "manual",
+  map_enabled: Boolean(storefrontSettings?.map_enabled),
+  map_address: storefrontSettings?.map_address || "",
+  reviews_enabled: Boolean(storefrontSettings?.reviews_enabled),
+  reviews_url: storefrontSettings?.reviews_url || "",
+  hero_images: Array.isArray(storefrontSettings?.hero_images)
+    ? storefrontSettings.hero_images.filter(Boolean)
+    : [],
+});
+
+const buildStorefrontHeroImageErrorMessage = (submissionError) => {
+  if (!submissionError) {
+    return "L'image du bloc visuel n'a pas pu etre preparee.";
+  }
+
+  if (
+    submissionError.code === "catalog_image_too_large" ||
+    submissionError.code === "request_entity_too_large" ||
+    submissionError.statusCode === 413
+  ) {
+    return `L'image depasse la taille maximale autorisee de ${Math.round(
+      MAX_CATALOG_IMAGE_SIZE_BYTES / (1024 * 1024)
+    )} Mo.`;
+  }
+
+  if (submissionError.code === "catalog_image_dimensions") {
+    return `L'image doit mesurer au moins ${MIN_CATALOG_IMAGE_WIDTH} x ${MIN_CATALOG_IMAGE_HEIGHT} px.`;
+  }
+
+  if (submissionError.code === "catalog_image_too_small") {
+    return "L'image est trop petite pour etre exploitable.";
+  }
+
+  return submissionError.message || "L'image du bloc visuel n'a pas pu etre preparee.";
+};
+
+const buildStorefrontHeroImageItems = (existingImages = [], pendingImages = []) => [
+  ...existingImages.map((imageUrl) => ({
+    key: `existing:${imageUrl}`,
+    kind: "existing",
+    url: imageUrl,
+  })),
+  ...pendingImages.map((image) => ({
+    key: `pending:${image.id}`,
+    kind: "pending",
+    image,
+    url: image.previewUrl,
+  })),
+];
+
+const splitStorefrontHeroImageItems = (items = []) => ({
+  hero_images: items.filter((entry) => entry.kind === "existing").map((entry) => entry.url),
+  pendingImages: items.filter((entry) => entry.kind === "pending").map((entry) => entry.image),
+});
+
+const buildStorefrontHeroImageSequenceEntry = (entry) =>
+  entry.kind === "existing" ? entry.url : `upload:${entry.image.id}`;
 
 const initialAccountForm = {
   full_name: "",
@@ -160,6 +234,8 @@ function SettingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, replaceUser } = useAuth();
+  const storefrontHeroImageInputRef = useRef(null);
+  const storefrontHeroImageReplacementInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
@@ -172,6 +248,8 @@ function SettingsPageContent() {
   const [platformForm, setPlatformForm] = useState(initialPlatformForm);
   const [providerForm, setProviderForm] = useState(initialProviderForm);
   const [storefrontForm, setStorefrontForm] = useState(initialStorefrontForm);
+  const [pendingStorefrontHeroImages, setPendingStorefrontHeroImages] = useState([]);
+  const [storefrontHeroImageReplacementKey, setStorefrontHeroImageReplacementKey] = useState("");
   const [localPreferences, setLocalPreferences] = useState(initialLocalPreferences);
   const [reservationStatuses, setReservationStatuses] = useState(defaultReservationStatuses);
   const [savingStatuses, setSavingStatuses] = useState(false);
@@ -203,16 +281,9 @@ function SettingsPageContent() {
         setProviderForm({
           customerPaymentsEnabled: Boolean(response.onlinePayment?.enabled),
         });
-        setStorefrontForm({
-          slug: storefrontResponse.storefrontSettings?.slug || "",
-          is_published: Boolean(storefrontResponse.storefrontSettings?.is_published),
-          reservation_approval_mode:
-            storefrontResponse.storefrontSettings?.reservation_approval_mode || "manual",
-          map_enabled: Boolean(storefrontResponse.storefrontSettings?.map_enabled),
-          map_address: storefrontResponse.storefrontSettings?.map_address || "",
-          reviews_enabled: Boolean(storefrontResponse.storefrontSettings?.reviews_enabled),
-          reviews_url: storefrontResponse.storefrontSettings?.reviews_url || "",
-        });
+        setStorefrontForm(buildStorefrontSettingsForm(storefrontResponse.storefrontSettings));
+        setPendingStorefrontHeroImages([]);
+        setStorefrontHeroImageReplacementKey("");
       }
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
@@ -309,6 +380,133 @@ function SettingsPageContent() {
   const togglePreference = (key) => {
     setLocalPreferences((current) => ({ ...current, [key]: !current[key] }));
   };
+
+  const updateStorefrontHeroImageCollections = (updater) => {
+    const nextItems = updater(
+      buildStorefrontHeroImageItems(storefrontForm.hero_images, pendingStorefrontHeroImages)
+    );
+    const nextCollections = splitStorefrontHeroImageItems(nextItems);
+
+    setStorefrontForm((current) => ({
+      ...current,
+      hero_images: nextCollections.hero_images,
+    }));
+    setPendingStorefrontHeroImages(nextCollections.pendingImages);
+  };
+
+  const prepareStorefrontHeroImages = async (files, { replaceItemKey = "" } = {}) => {
+    const selectedFiles = Array.from(files || []);
+    const currentItems = buildStorefrontHeroImageItems(
+      storefrontForm.hero_images,
+      pendingStorefrontHeroImages
+    );
+    const replacementIndex = replaceItemKey
+      ? currentItems.findIndex((entry) => entry.key === replaceItemKey)
+      : -1;
+    const remainingSlots =
+      MAX_STOREFRONT_HERO_IMAGES - currentItems.length + (replacementIndex >= 0 ? 1 : 0);
+
+    if (!selectedFiles.length) {
+      return;
+    }
+
+    if (remainingSlots <= 0) {
+      setFeedback({
+        type: "error",
+        message: `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images dans le bloc visuel.`,
+      });
+      return;
+    }
+
+    const filesToPrepare = selectedFiles.slice(0, replacementIndex >= 0 ? 1 : remainingSlots);
+    const preparedImages = [];
+    const messages = [];
+
+    for (const file of filesToPrepare) {
+      try {
+        preparedImages.push(await prepareCatalogImage(file));
+      } catch (submissionError) {
+        messages.push(buildStorefrontHeroImageErrorMessage(submissionError));
+      }
+    }
+
+    if (selectedFiles.length > filesToPrepare.length) {
+      messages.push(
+        `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images dans le bloc visuel.`
+      );
+    }
+
+    if (!preparedImages.length) {
+      setFeedback({
+        type: "error",
+        message: messages[0] || "L'image du bloc visuel n'a pas pu etre preparee.",
+      });
+      return;
+    }
+
+    updateStorefrontHeroImageCollections((items) => {
+      const nextItems = [...items];
+      const nextPreparedItems = buildStorefrontHeroImageItems([], preparedImages);
+
+      if (replacementIndex >= 0) {
+        nextItems.splice(replacementIndex, 1, nextPreparedItems[0]);
+        return nextItems;
+      }
+
+      return [...nextItems, ...nextPreparedItems];
+    });
+
+    setFeedback({
+      type: "success",
+      message: [
+        replacementIndex >= 0
+          ? "L'image du bloc visuel a ete remplacee. Enregistrez pour appliquer."
+          : `${preparedImages.length} image(s) prete(s) pour le bloc visuel. Enregistrez pour appliquer.`,
+        messages[0] || "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    });
+  };
+
+  const handleStorefrontHeroImageAdd = async (event) => {
+    await prepareStorefrontHeroImages(event.target.files);
+    event.target.value = "";
+  };
+
+  const handleStorefrontHeroImageReplace = async (event) => {
+    const replacementKey = storefrontHeroImageReplacementKey;
+    setStorefrontHeroImageReplacementKey("");
+    await prepareStorefrontHeroImages(event.target.files, {
+      replaceItemKey: replacementKey,
+    });
+    event.target.value = "";
+  };
+
+  const handleStorefrontHeroImageRemove = (itemKey) => {
+    updateStorefrontHeroImageCollections((items) =>
+      items.filter((entry) => entry.key !== itemKey)
+    );
+    setFeedback({
+      type: "success",
+      message: "Image retiree du bloc visuel. Enregistrez pour appliquer.",
+    });
+  };
+
+  const openStorefrontHeroImagePicker = () => {
+    storefrontHeroImageInputRef.current?.click();
+  };
+
+  const openStorefrontHeroImageReplacementPicker = (itemKey) => {
+    setStorefrontHeroImageReplacementKey(itemKey);
+    storefrontHeroImageReplacementInputRef.current?.click();
+  };
+
+  const storefrontHeroImageItems = buildStorefrontHeroImageItems(
+    storefrontForm.hero_images,
+    pendingStorefrontHeroImages
+  );
+  const storefrontHeroImageCount = storefrontHeroImageItems.length;
 
   const managedTaxRates = standardFrenchTaxRates.map((taxRateDefinition) => {
     const matchingTaxRate = taxRates.find(
@@ -502,26 +700,45 @@ function SettingsPageContent() {
 
   const handleStorefrontSave = async (event) => {
     event.preventDefault();
+    const reviewsUrlValidation = validateStorefrontGoogleReviewsUrl(storefrontForm.reviews_url);
+
+    if (!reviewsUrlValidation.isEmpty && !reviewsUrlValidation.isValid) {
+      setFeedback({ type: "error", message: reviewsUrlValidation.error });
+      return;
+    }
+
+    if (storefrontForm.reviews_enabled && !reviewsUrlValidation.isValid) {
+      setFeedback({
+        type: "error",
+        message:
+          "Ajoutez un lien Google Maps ou Google Business compatible pour activer les avis Google.",
+      });
+      return;
+    }
+
     setSavingStorefront(true);
     setFeedback(null);
 
     try {
       const response = await apiRequest("/storefront/settings", {
         method: "PUT",
-        body: storefrontForm,
+        body: {
+          ...storefrontForm,
+          reviews_url: reviewsUrlValidation.normalizedUrl || "",
+          hero_images: storefrontForm.hero_images,
+          hero_image_uploads: pendingStorefrontHeroImages.map((pendingImage) => ({
+            client_id: pendingImage.id,
+            data_url: pendingImage.dataUrl,
+            file_name: pendingImage.fileName,
+          })),
+          hero_image_sequence: storefrontHeroImageItems.map(buildStorefrontHeroImageSequenceEntry),
+        },
       });
 
       setStorefrontSettings(response.storefrontSettings);
-      setStorefrontForm({
-        slug: response.storefrontSettings?.slug || "",
-        is_published: Boolean(response.storefrontSettings?.is_published),
-        reservation_approval_mode:
-          response.storefrontSettings?.reservation_approval_mode || "manual",
-        map_enabled: Boolean(response.storefrontSettings?.map_enabled),
-        map_address: response.storefrontSettings?.map_address || "",
-        reviews_enabled: Boolean(response.storefrontSettings?.reviews_enabled),
-        reviews_url: response.storefrontSettings?.reviews_url || "",
-      });
+      setStorefrontForm(buildStorefrontSettingsForm(response.storefrontSettings));
+      setPendingStorefrontHeroImages([]);
+      setStorefrontHeroImageReplacementKey("");
       setFeedback({
         type: "success",
         message: "Les reglages de la boutique en ligne ont ete enregistres.",
@@ -589,6 +806,13 @@ function SettingsPageContent() {
   const activeSectionConfig =
     settingSections.find((section) => section.id === activeSection) || settingSections[0];
   const storefrontPath = storefrontForm.slug ? buildStorefrontPath(storefrontForm.slug) : "";
+  const storefrontReviewsValidation = validateStorefrontGoogleReviewsUrl(storefrontForm.reviews_url);
+  const storefrontReviewsHint = storefrontReviewsValidation.isEmpty
+    ? "Accepte un lien Google Maps, Google Business ou g.page vers votre fiche. La boutique affichera un bouton externe dans un nouvel onglet."
+    : storefrontReviewsValidation.isValid
+      ? "Lien compatible. La boutique affichera un bouton externe vers Google dans un nouvel onglet."
+      : storefrontReviewsValidation.error;
+  const hasActiveSavedGoogleReviews = hasActiveStorefrontGoogleReviews(storefrontSettings);
   const stripeConnection = paymentSettings?.stripe || null;
   const onlinePayment = paymentSettings?.onlinePayment || null;
   const paymentOverview = paymentSettings?.overview || null;
@@ -1185,11 +1409,9 @@ function SettingsPageContent() {
                 </article>
                 <article className="detail-card">
                   <strong>Avis Google</strong>
-                  <span className="muted-text">
-                    {storefrontSettings?.reviews_enabled
-                      ? storefrontSettings?.reviews_url || "Actives sans lien"
-                      : "Masques"}
-                  </span>
+                  <StatusPill tone={hasActiveSavedGoogleReviews ? "success" : "neutral"}>
+                    {hasActiveSavedGoogleReviews ? "Actif" : "Inactif"}
+                  </StatusPill>
                 </article>
               </div>
 
@@ -1291,7 +1513,7 @@ function SettingsPageContent() {
                       }))
                     }
                   />
-                  <span>Afficher les avis Google</span>
+                  <span>Afficher le bouton Avis Google</span>
                 </label>
 
                 <div className="field">
@@ -1305,11 +1527,123 @@ function SettingsPageContent() {
                         reviews_url: event.target.value,
                       }))
                     }
-                    placeholder="https://g.page/r/..."
+                    placeholder="https://www.google.com/maps/place/..."
                   />
-                  <p className="field-hint">
-                    Utilise pour le bouton et la redirection de la section avis.
+                  <p
+                    className={`field-hint ${
+                      !storefrontReviewsValidation.isEmpty && !storefrontReviewsValidation.isValid
+                        ? "error"
+                        : ""
+                    }`.trim()}
+                  >
+                    {storefrontReviewsHint}
                   </p>
+                </div>
+
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Images du bloc visuel du hero</label>
+                  <input
+                    ref={storefrontHeroImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    onChange={(event) => void handleStorefrontHeroImageAdd(event)}
+                    style={{ display: "none" }}
+                  />
+                  <input
+                    ref={storefrontHeroImageReplacementInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => void handleStorefrontHeroImageReplace(event)}
+                    style={{ display: "none" }}
+                  />
+
+                  <article className="detail-card">
+                    <div className="row-actions">
+                      <div>
+                        <strong>{storefrontHeroImageCount} / 5 image(s)</strong>
+                      </div>
+                      <button
+                        type="button"
+                        className="button ghost"
+                        onClick={openStorefrontHeroImagePicker}
+                        disabled={storefrontHeroImageCount >= MAX_STOREFRONT_HERO_IMAGES}
+                      >
+                        Ajouter des images
+                      </button>
+                    </div>
+                    <p className="field-hint">
+                      JPG, PNG ou WebP. Maximum 5 images. La premiere image de la liste s&apos;affiche
+                      en premier quand plusieurs images sont configurees.
+                    </p>
+                  </article>
+
+                  {storefrontHeroImageItems.length ? (
+                    <div className="detail-grid" style={{ marginTop: "0.8rem" }}>
+                      {storefrontHeroImageItems.map((imageItem, index) => (
+                        <article key={imageItem.key} className="detail-card">
+                          <div
+                            style={{
+                              aspectRatio: "4 / 3",
+                              overflow: "hidden",
+                              borderRadius: "14px",
+                              background: "rgba(15, 23, 42, 0.06)",
+                              marginBottom: "0.8rem",
+                            }}
+                          >
+                            <img
+                              src={imageItem.url}
+                              alt={`Bloc visuel ${index + 1}`}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                                display: "block",
+                              }}
+                            />
+                          </div>
+
+                          <div className="row-actions">
+                            <div>
+                              <strong>Image {index + 1}</strong>
+                              <p className="muted-text">
+                                {imageItem.kind === "pending"
+                                  ? "Nouvelle image, en attente d'enregistrement."
+                                  : "Image deja enregistree sur la boutique."}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="row-actions">
+                            <button
+                              type="button"
+                              className="button ghost"
+                              onClick={() =>
+                                openStorefrontHeroImageReplacementPicker(imageItem.key)
+                              }
+                            >
+                              Remplacer
+                            </button>
+                            <button
+                              type="button"
+                              className="button ghost"
+                              onClick={() => handleStorefrontHeroImageRemove(imageItem.key)}
+                            >
+                              Supprimer
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <article className="detail-card" style={{ marginTop: "0.8rem" }}>
+                      <strong>Aucune image personnalisee</strong>
+                      <p className="muted-text">
+                        Tant qu&apos;aucune image n&apos;est ajoutee ici, le bloc visuel du hero garde
+                        exactement son comportement actuel.
+                      </p>
+                    </article>
+                  )}
                 </div>
 
                 <div className="row-actions">

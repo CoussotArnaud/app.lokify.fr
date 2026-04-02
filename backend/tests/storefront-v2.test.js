@@ -5,8 +5,14 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import sharp from "sharp";
+
 import { query } from "../src/config/db.js";
 import { createCatalogPack, upsertItemProfile } from "../src/services/catalog.service.js";
+import {
+  resetCloudflareR2ServiceOverrideForTests,
+  setCloudflareR2ServiceOverrideForTests,
+} from "../src/services/cloudflare-r2.service.js";
 import { createReservation } from "../src/services/reservations.service.js";
 import {
   getPublicStorefrontPreview,
@@ -20,6 +26,36 @@ import { updateItem } from "../src/services/items.service.js";
 
 const projectRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const storefrontMailOutboxDir = path.join(projectRoot, ".lokify-runtime", "mail-outbox");
+
+const buildManagedHeroImageUrl = (objectKey) =>
+  `https://cdn.lokify.test/${String(objectKey || "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+
+const extractManagedHeroImageObjectKey = (photoUrl) => {
+  const prefix = "https://cdn.lokify.test/";
+  if (!String(photoUrl || "").startsWith(prefix)) {
+    return null;
+  }
+
+  return decodeURIComponent(String(photoUrl).slice(prefix.length));
+};
+
+const buildRealStorefrontHeroDataUrl = async (width, height) => {
+  const rawBuffer = crypto.randomBytes(width * height * 3);
+  const jpegBuffer = await sharp(rawBuffer, {
+    raw: {
+      width,
+      height,
+      channels: 3,
+    },
+  })
+    .jpeg({ quality: 84 })
+    .toBuffer();
+
+  return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+};
 
 const getDemoUserId = async () => {
   const { rows } = await query(
@@ -245,6 +281,125 @@ test("public storefront uses persisted settings, publication status and automati
       }),
     /Boutique indisponible/
   );
+});
+
+test("storefront hero images support 0, 1 and up to 5 saved images", async () => {
+  const userId = await getDemoUserId();
+  const uploadedObjectKeys = [];
+  const deletedObjectKeys = [];
+  const startDate = new Date(Date.now() + (470 + Math.floor(Math.random() * 40)) * 24 * 60 * 60 * 1000);
+  const endDate = new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000);
+  const sharedHeroImageDataUrl = await buildRealStorefrontHeroDataUrl(1200, 900);
+
+  setCloudflareR2ServiceOverrideForTests({
+    buildPublicUrl: buildManagedHeroImageUrl,
+    extractObjectKeyFromPublicUrl: extractManagedHeroImageObjectKey,
+    isManagedPublicUrl: (photoUrl) => String(photoUrl || "").startsWith("https://cdn.lokify.test/"),
+    uploadObject: async ({ objectKey }) => {
+      uploadedObjectKeys.push(objectKey);
+      return {
+        objectKey,
+        publicUrl: buildManagedHeroImageUrl(objectKey),
+      };
+    },
+    deleteObject: async (objectKey) => {
+      deletedObjectKeys.push(objectKey);
+    },
+  });
+
+  try {
+    const initialSettings = await getStorefrontSettings(userId);
+    const emptiedSettings = await updateStorefrontSettings(userId, {
+      slug: initialSettings.slug,
+      hero_images: [],
+    });
+
+    assert.deepEqual(emptiedSettings.hero_images, []);
+
+    const singleImageSettings = await updateStorefrontSettings(userId, {
+      slug: initialSettings.slug,
+      hero_image_uploads: [
+        {
+          client_id: "hero-1",
+          data_url: sharedHeroImageDataUrl,
+          file_name: "hero-1.jpg",
+        },
+      ],
+      hero_image_sequence: ["upload:hero-1"],
+    });
+
+    assert.equal(singleImageSettings.hero_images.length, 1);
+
+    const multiImageSettings = await updateStorefrontSettings(userId, {
+      slug: initialSettings.slug,
+      hero_images: singleImageSettings.hero_images,
+      hero_image_uploads: [
+        {
+          client_id: "hero-2",
+          data_url: sharedHeroImageDataUrl,
+          file_name: "hero-2.jpg",
+        },
+        {
+          client_id: "hero-3",
+          data_url: sharedHeroImageDataUrl,
+          file_name: "hero-3.jpg",
+        },
+        {
+          client_id: "hero-4",
+          data_url: sharedHeroImageDataUrl,
+          file_name: "hero-4.jpg",
+        },
+        {
+          client_id: "hero-5",
+          data_url: sharedHeroImageDataUrl,
+          file_name: "hero-5.jpg",
+        },
+      ],
+      hero_image_sequence: [
+        singleImageSettings.hero_images[0],
+        "upload:hero-2",
+        "upload:hero-3",
+        "upload:hero-4",
+        "upload:hero-5",
+      ],
+    });
+
+    assert.equal(multiImageSettings.hero_images.length, 5);
+
+    const preview = await getStorefrontPreview(userId, {
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+    });
+
+    assert.deepEqual(preview.storefront.hero_images, multiImageSettings.hero_images);
+    assert.equal(uploadedObjectKeys.length, 5);
+
+    await assert.rejects(
+      () =>
+        updateStorefrontSettings(userId, {
+          slug: initialSettings.slug,
+          hero_images: multiImageSettings.hero_images,
+          hero_image_uploads: [
+            {
+              client_id: "hero-6",
+              data_url: sharedHeroImageDataUrl,
+              file_name: "hero-6.jpg",
+            },
+          ],
+        }),
+      /Vous ne pouvez pas ajouter plus de 5 images/
+    );
+
+    const clearedSettings = await updateStorefrontSettings(userId, {
+      slug: initialSettings.slug,
+      hero_images: [],
+    });
+
+    assert.deepEqual(clearedSettings.hero_images, []);
+    assert.equal(deletedObjectKeys.length, 5);
+  } finally {
+    resetCloudflareR2ServiceOverrideForTests();
+  }
 });
 
 test("storefront supports packs and product options inside a multi-entry cart", async () => {

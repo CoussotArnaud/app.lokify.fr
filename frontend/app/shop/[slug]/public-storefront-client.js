@@ -17,6 +17,10 @@ import {
 import StatusPill from "../../../components/status-pill";
 import { apiRequest } from "../../../lib/api";
 import { formatCurrency } from "../../../lib/date";
+import {
+  hasActiveStorefrontGoogleReviews,
+  validateStorefrontGoogleReviewsUrl,
+} from "../../../lib/storefront-google-reviews";
 import { buildStorefrontPath } from "../../../lib/storefront";
 import {
   buildDefaultBookingForm,
@@ -52,24 +56,6 @@ const availabilityMessageByReason = {
   period: "Produit indisponible sur cette periode",
   stock: "Produit en rupture de stock",
 };
-
-const defaultStorefrontReviewCards = [
-  {
-    id: "review-1",
-    author: "Parcours rassurant",
-    copy: "Le choix des dates, la lecture du panier et la demande finale sont restes tres simples du debut a la fin.",
-  },
-  {
-    id: "review-2",
-    author: "Selection bien presentee",
-    copy: "Les produits sont faciles a comparer, les tarifs sont clairs et la boutique donne envie de reserver.",
-  },
-  {
-    id: "review-3",
-    author: "Validation sans friction",
-    copy: "On comprend vite comment avancer, avec les bons reperes sur la disponibilite, la logistique et la validation.",
-  },
-];
 
 const getDurationInDays = (startDateValue, endDateValue) => {
   const startDate = new Date(startDateValue);
@@ -184,7 +170,7 @@ export default function PublicStorefrontClient({
   const [visibleProductLimit, setVisibleProductLimit] = useState(initialVisibleProductCount);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [draftReady, setDraftReady] = useState(false);
-  const [showCatalog, setShowCatalog] = useState(true);
+  const [, setShowCatalog] = useState(true);
   const [activeCategoryFilter, setActiveCategoryFilter] = useState("all");
   const [featuredOffset, setFeaturedOffset] = useState(0);
   const initialRequestKeyRef = useRef(
@@ -369,12 +355,22 @@ export default function PublicStorefrontClient({
   const compactPeriodLabel = `${formatCompactDate(bookingForm.start_date)} - ${formatCompactDate(
     bookingForm.end_date
   )}`;
-  const heroImage = featuredProducts[0]?.thumbnail || products[0]?.thumbnail || "";
+  const catalogHeroImage = featuredProducts[0]?.thumbnail || products[0]?.thumbnail || "";
+  const customHeroImages = Array.isArray(storefront?.hero_images)
+    ? storefront.hero_images.filter(Boolean)
+    : [];
+  const heroImages = customHeroImages.length
+    ? customHeroImages
+    : catalogHeroImage
+      ? [catalogHeroImage]
+      : [];
   const mapAddress = storefront?.map_address || "";
   const mapEmbedUrl = mapAddress
     ? `https://www.google.com/maps?q=${encodeURIComponent(mapAddress)}&output=embed`
     : "";
-  const reviewCards = storefront?.reviews_enabled ? defaultStorefrontReviewCards : [];
+  const reviewsUrlValidation = validateStorefrontGoogleReviewsUrl(storefront?.reviews_url || "");
+  const hasActiveGoogleReviews = hasActiveStorefrontGoogleReviews(storefront);
+  const googleReviewsUrl = hasActiveGoogleReviews ? reviewsUrlValidation.normalizedUrl : "";
   const productById = new Map(products.map((product) => [product.id, product]));
   const packById = new Map(packs.map((pack) => [pack.id, pack]));
   const paymentSummary = shopState.data?.online_payment || {
@@ -737,7 +733,6 @@ export default function PublicStorefrontClient({
       ? Math.min(productPreview.activePhotoIndex || 0, previewPhotos.length - 1)
       : 0;
   const activePreviewPhoto = previewPhotos[activePreviewPhotoIndex] || "";
-  const shouldShowCatalog = showCatalog || cartHasEntries;
   const featuredPageSize = 5;
   const visibleFeaturedProducts = featuredProducts.slice(
     featuredOffset,
@@ -1088,7 +1083,7 @@ export default function PublicStorefrontClient({
     <div className="storefront-page public-shop-page public-shop-v6">
       <StorefrontTopbar
         publicPath={publicPath}
-        hasReviews={Boolean(storefront?.reviews_enabled && storefront?.reviews_url)}
+        hasReviews={hasActiveGoogleReviews}
         revealCatalog={revealCatalog}
         scrollToSection={scrollToSection}
       />
@@ -1104,7 +1099,7 @@ export default function PublicStorefrontClient({
           storefrontName={storefrontName}
           storefrontLiveStatus={storefrontLiveStatus}
           providerLocation={providerLocation}
-          heroImage={heroImage}
+          heroImages={heroImages}
           bookingForm={bookingForm}
           onBookingFieldChange={handleBookingFieldChange}
           paymentSummary={paymentSummary}
@@ -1139,52 +1134,56 @@ export default function PublicStorefrontClient({
           storefrontName={storefrontName}
         />
 
-        <StorefrontReviewsSection storefront={storefront} reviewCards={reviewCards} />
+        <StorefrontReviewsSection reviewsUrl={googleReviewsUrl} />
 
-        <StorefrontCatalogStage
-          shouldShowCatalog={shouldShowCatalog}
-          storefrontName={storefrontName}
-          providerLocation={providerLocation}
-          visibleProductCount={visibleProductCount}
-          visiblePackCount={visiblePackCount}
-          compactPeriodLabel={compactPeriodLabel}
-          durationDays={durationDays}
-          totalRequestedQuantity={totalRequestedQuantity}
-          visibleProducts={visibleProducts}
-          showLoadMoreProducts={showLoadMoreProducts}
-          setVisibleProductLimit={setVisibleProductLimit}
-          initialVisibleProductCount={initialVisibleProductCount}
-          products={products}
-          packs={packs}
-          categories={categories}
-          activeCategoryFilter={activeCategoryFilter}
-          revealCatalog={revealCatalog}
-          shopState={shopState}
-          availabilityMeta={availabilityMeta}
-          availabilityMessageByReason={availabilityMessageByReason}
-          openProductPreview={openProductPreview}
-          addProductToCart={addProductToCart}
-          addPackToCart={addPackToCart}
-          bookingForm={bookingForm}
-          paymentSummary={paymentSummary}
-          totalEstimatedAmount={totalEstimatedAmount}
-          totalEstimatedDeposit={totalEstimatedDeposit}
-          cartStatusTone={cartStatusTone}
-          cartStatusLabel={cartStatusLabel}
-          cartEntries={cartEntries}
-          resolvedCartEntries={resolvedCartEntries}
-          cartHasEntries={cartHasEntries}
-          uniqueAvailabilityIssues={uniqueAvailabilityIssues}
-          submitError={submitError}
-          openCheckoutModal={openCheckoutModal}
-          checkoutActionLabel={checkoutActionLabel}
-          isFinalizingCheckout={isFinalizingCheckout}
-          removeCartEntry={removeCartEntry}
-          updateCartEntryQuantity={updateCartEntryQuantity}
-          productById={productById}
-          openProductConfigurator={openProductConfigurator}
-          scrollToSection={scrollToSection}
-        />
+        {false ? (
+          <StorefrontCatalogStage
+            shouldShowCatalog={false}
+            storefrontName={storefrontName}
+            providerLocation={providerLocation}
+            visibleProductCount={visibleProductCount}
+            visiblePackCount={visiblePackCount}
+            compactPeriodLabel={compactPeriodLabel}
+            durationDays={durationDays}
+            totalRequestedQuantity={totalRequestedQuantity}
+            visibleProducts={visibleProducts}
+            showLoadMoreProducts={showLoadMoreProducts}
+            setVisibleProductLimit={setVisibleProductLimit}
+            initialVisibleProductCount={initialVisibleProductCount}
+            products={products}
+            packs={packs}
+            categories={categories}
+            activeCategoryFilter={activeCategoryFilter}
+            revealCatalog={revealCatalog}
+            shopState={shopState}
+            availabilityMeta={availabilityMeta}
+            availabilityMessageByReason={availabilityMessageByReason}
+            openProductPreview={openProductPreview}
+            addProductToCart={addProductToCart}
+            addPackToCart={addPackToCart}
+            bookingForm={bookingForm}
+            paymentSummary={paymentSummary}
+            totalEstimatedAmount={totalEstimatedAmount}
+            totalEstimatedDeposit={totalEstimatedDeposit}
+            cartStatusTone={cartStatusTone}
+            cartStatusLabel={cartStatusLabel}
+            cartEntries={cartEntries}
+            resolvedCartEntries={resolvedCartEntries}
+            cartHasEntries={cartHasEntries}
+            uniqueAvailabilityIssues={uniqueAvailabilityIssues}
+            submitError={submitError}
+            openCheckoutModal={openCheckoutModal}
+            checkoutActionLabel={checkoutActionLabel}
+            isFinalizingCheckout={isFinalizingCheckout}
+            removeCartEntry={removeCartEntry}
+            updateCartEntryQuantity={updateCartEntryQuantity}
+            productById={productById}
+            openProductConfigurator={openProductConfigurator}
+            scrollToSection={scrollToSection}
+          />
+        ) : (
+          <div id="storefront-catalogue" hidden aria-hidden="true" />
+        )}
         <StorefrontFooter
           storefrontName={storefrontName}
           providerLocation={providerLocation}

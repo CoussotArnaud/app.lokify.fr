@@ -2,8 +2,14 @@ import crypto from "crypto";
 
 import env from "../config/env.js";
 import { query } from "../config/db.js";
+import { validateStorefrontGoogleReviewsUrl } from "../lib/storefront-google-reviews.js";
 import HttpError from "../utils/http-error.js";
 import { listCatalogCategories, listCatalogPacks, listItemProfiles } from "./catalog.service.js";
+import {
+  deleteCatalogManagedPhoto,
+  isManagedCatalogPhotoUrl,
+  uploadStorefrontHeroImage,
+} from "./catalog-photo-storage.service.js";
 import { createClient, restoreClient } from "./clients.service.js";
 import {
   getCustomerPaymentSettings,
@@ -25,6 +31,7 @@ const blockedStorefrontItemStatuses = new Set(["maintenance", "unavailable"]);
 const storefrontSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const storefrontSlugMinLength = 3;
 const storefrontSlugMaxLength = 60;
+const maxStorefrontHeroImages = 5;
 const slugChangeCooldownMs = 24 * 60 * 60 * 1000;
 
 const normalizeWhitespace = (value) =>
@@ -65,6 +72,36 @@ const parseJsonObject = (value) => {
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch (_error) {
     return {};
+  }
+};
+
+const normalizeStringArray = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((entry) => normalizeWhitespace(entry))
+    .filter(Boolean);
+
+const normalizeStorefrontHeroImageUrls = (value) => {
+  const seen = new Set();
+  const heroImages = [];
+
+  normalizeStringArray(value).forEach((imageUrl) => {
+    if (seen.has(imageUrl)) {
+      return;
+    }
+
+    seen.add(imageUrl);
+    heroImages.push(imageUrl);
+  });
+
+  return heroImages;
+};
+
+const parseStorefrontHeroImages = (value) => {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return normalizeStorefrontHeroImageUrls(parsed);
+  } catch (_error) {
+    return [];
   }
 };
 
@@ -292,6 +329,166 @@ const allocateMoneyCents = (baseValues, targetTotalCents) => {
   return floorAllocations;
 };
 
+const normalizeStorefrontHeroImageUploads = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      ...entry,
+      client_id: normalizeOptionalStorefrontText(entry.client_id ?? entry.clientId ?? entry.id),
+    }));
+};
+
+const normalizeStorefrontHeroImageSequence = (value) => {
+  const seen = new Set();
+  const sequence = [];
+
+  normalizeStringArray(value).forEach((entry) => {
+    if (seen.has(entry)) {
+      return;
+    }
+
+    seen.add(entry);
+    sequence.push(entry);
+  });
+
+  return sequence;
+};
+
+const buildOrderedStorefrontHeroImageList = ({
+  retainedImages = [],
+  uploadedImages = [],
+  imageSequence = [],
+}) => {
+  const orderedImages = [];
+  const seen = new Set();
+  const retainedImageMap = new Map(retainedImages.map((imageUrl) => [imageUrl, imageUrl]));
+  const uploadedImageMap = new Map(
+    uploadedImages
+      .filter((entry) => entry?.sequenceKey && entry?.publicUrl)
+      .map((entry) => [entry.sequenceKey, entry.publicUrl])
+  );
+
+  imageSequence.forEach((sequenceEntry) => {
+    const retainedImage = retainedImageMap.get(sequenceEntry);
+    if (retainedImage && !seen.has(retainedImage)) {
+      seen.add(retainedImage);
+      orderedImages.push(retainedImage);
+      return;
+    }
+
+    const uploadedImage = uploadedImageMap.get(sequenceEntry);
+    if (uploadedImage && !seen.has(uploadedImage)) {
+      seen.add(uploadedImage);
+      orderedImages.push(uploadedImage);
+    }
+  });
+
+  retainedImages.forEach((imageUrl) => {
+    if (seen.has(imageUrl)) {
+      return;
+    }
+
+    seen.add(imageUrl);
+    orderedImages.push(imageUrl);
+  });
+
+  uploadedImages.forEach((entry) => {
+    if (!entry?.publicUrl || seen.has(entry.publicUrl)) {
+      return;
+    }
+
+    seen.add(entry.publicUrl);
+    orderedImages.push(entry.publicUrl);
+  });
+
+  return orderedImages;
+};
+
+const deleteManagedStorefrontHeroImages = async (heroImages = []) => {
+  for (const imageUrl of normalizeStorefrontHeroImageUrls(heroImages)) {
+    if (!isManagedCatalogPhotoUrl(imageUrl)) {
+      continue;
+    }
+
+    try {
+      await deleteCatalogManagedPhoto(imageUrl);
+    } catch (error) {
+      console.error("Storefront hero image cleanup failed", {
+        imageUrl,
+        message: error.message,
+      });
+    }
+  }
+};
+
+const prepareStorefrontHeroImagesUpdate = async (
+  userId,
+  { currentImages = [], retainedImages, imageUploads = [], imageSequence = [] } = {}
+) => {
+  const normalizedCurrentImages = normalizeStorefrontHeroImageUrls(currentImages);
+  const nextRetainedImages =
+    retainedImages === undefined
+      ? normalizedCurrentImages
+      : normalizeStorefrontHeroImageUrls(retainedImages);
+  const normalizedImageUploads = normalizeStorefrontHeroImageUploads(imageUploads);
+  const normalizedImageSequence = normalizeStorefrontHeroImageSequence(imageSequence);
+
+  if (nextRetainedImages.some((imageUrl) => !normalizedCurrentImages.includes(imageUrl))) {
+    throw new HttpError(400, "Une image du bloc hero est invalide.", {
+      code: "storefront_hero_image_invalid_reference",
+    });
+  }
+
+  if (nextRetainedImages.length + normalizedImageUploads.length > maxStorefrontHeroImages) {
+    throw new HttpError(
+      400,
+      `Vous ne pouvez pas ajouter plus de ${maxStorefrontHeroImages} images dans le bloc visuel.`,
+      { code: "storefront_hero_image_limit" }
+    );
+  }
+
+  const uploadedImages = [];
+
+  try {
+    for (const imageUpload of normalizedImageUploads) {
+      const uploadedImage = await uploadStorefrontHeroImage({
+        userId,
+        payload: imageUpload,
+      });
+
+      uploadedImages.push({
+        publicUrl: uploadedImage.publicUrl,
+        sequenceKey: imageUpload.client_id ? `upload:${imageUpload.client_id}` : null,
+      });
+    }
+  } catch (error) {
+    await deleteManagedStorefrontHeroImages(uploadedImages.map((entry) => entry.publicUrl));
+    throw error;
+  }
+
+  const finalImages = normalizedImageSequence.length
+    ? buildOrderedStorefrontHeroImageList({
+        retainedImages: nextRetainedImages,
+        uploadedImages,
+        imageSequence: normalizedImageSequence,
+      })
+    : normalizeStorefrontHeroImageUrls([
+        ...nextRetainedImages,
+        ...uploadedImages.map((entry) => entry.publicUrl),
+      ]);
+  const removedImages = normalizedCurrentImages.filter((imageUrl) => !finalImages.includes(imageUrl));
+
+  return {
+    finalImages,
+    removedImages,
+    uploadedImages: uploadedImages.map((entry) => entry.publicUrl),
+  };
+};
+
 const serializeStorefrontSettings = (row) => ({
   user_id: row.user_id,
   slug: row.slug,
@@ -304,6 +501,7 @@ const serializeStorefrontSettings = (row) => ({
   map_address: row.map_address || "",
   reviews_enabled: Boolean(row.reviews_enabled),
   reviews_url: row.reviews_url || "",
+  hero_images: parseStorefrontHeroImages(row.hero_images_json),
   slug_updated_at: row.slug_updated_at || null,
   created_at: row.created_at || null,
   updated_at: row.updated_at || null,
@@ -436,9 +634,10 @@ export const ensureStorefrontSettingsRecord = async (userId) => {
           map_address,
           reviews_enabled,
           reviews_url,
+          hero_images_json,
           slug_updated_at
         )
-        VALUES ($1, $2, FALSE, 'manual', FALSE, NULL, FALSE, NULL, NULL)
+        VALUES ($1, $2, FALSE, 'manual', FALSE, NULL, FALSE, NULL, '[]', NULL)
         ON CONFLICT (user_id) DO UPDATE
         SET updated_at = storefront_settings.updated_at
         RETURNING *
@@ -464,6 +663,15 @@ export const updateStorefrontSettings = async (userId, payload = {}) => {
   const payloadHasMapAddress = Object.prototype.hasOwnProperty.call(payload, "map_address");
   const payloadHasReviewsEnabled = Object.prototype.hasOwnProperty.call(payload, "reviews_enabled");
   const payloadHasReviewsUrl = Object.prototype.hasOwnProperty.call(payload, "reviews_url");
+  const payloadHasHeroImages = Object.prototype.hasOwnProperty.call(payload, "hero_images");
+  const payloadHasHeroImageUploads = Object.prototype.hasOwnProperty.call(
+    payload,
+    "hero_image_uploads"
+  );
+  const payloadHasHeroImageSequence = Object.prototype.hasOwnProperty.call(
+    payload,
+    "hero_image_sequence"
+  );
 
   let nextSlug = currentSlug;
   let nextSlugUpdatedAt = currentSettings.slug_updated_at;
@@ -506,42 +714,83 @@ export const updateStorefrontSettings = async (userId, payload = {}) => {
   const nextReviewsEnabled = payloadHasReviewsEnabled
     ? Boolean(payload.reviews_enabled)
     : currentSettings.reviews_enabled;
-  const nextReviewsUrl = payloadHasReviewsUrl
-    ? normalizeOptionalStorefrontUrl(payload.reviews_url)
-    : normalizeOptionalStorefrontUrl(currentSettings.reviews_url);
+  const reviewsUrlValidation = validateStorefrontGoogleReviewsUrl(
+    payloadHasReviewsUrl ? payload.reviews_url : currentSettings.reviews_url
+  );
+  const nextReviewsUrl = reviewsUrlValidation.normalizedUrl;
 
   if (!allowedStorefrontApprovalModes.has(nextApprovalMode)) {
     throw new HttpError(400, "Le mode de validation boutique est invalide.");
   }
 
-  const { rows } = await query(
-    `
-      UPDATE storefront_settings
-      SET slug = $2,
-          is_published = $3,
-          reservation_approval_mode = $4,
-          slug_updated_at = $5,
-          map_enabled = $6,
-          map_address = $7,
-          reviews_enabled = $8,
-          reviews_url = $9
-      WHERE user_id = $1
-      RETURNING *
-    `,
-    [
-      userId,
-      nextSlug,
-      nextPublished,
-      nextApprovalMode,
-      nextSlugUpdatedAt,
-      nextMapEnabled,
-      nextMapAddress,
-      nextReviewsEnabled,
-      nextReviewsUrl,
-    ]
-  );
+  if (!reviewsUrlValidation.isEmpty && !reviewsUrlValidation.isValid) {
+    throw new HttpError(400, reviewsUrlValidation.error, {
+      code: "storefront_reviews_url_invalid",
+    });
+  }
 
-  return serializeStorefrontSettings(rows[0]);
+  if (nextReviewsEnabled && !reviewsUrlValidation.isValid) {
+    throw new HttpError(
+      400,
+      "Ajoutez un lien Google Maps ou Google Business compatible pour activer les avis Google.",
+      { code: "storefront_reviews_url_required" }
+    );
+  }
+
+  let nextHeroImages = currentSettings.hero_images;
+  let removedHeroImages = [];
+  let uploadedHeroImages = [];
+
+  if (payloadHasHeroImages || payloadHasHeroImageUploads || payloadHasHeroImageSequence) {
+    const heroImagePreparation = await prepareStorefrontHeroImagesUpdate(userId, {
+      currentImages: currentSettings.hero_images,
+      retainedImages: payloadHasHeroImages ? payload.hero_images : currentSettings.hero_images,
+      imageUploads: payloadHasHeroImageUploads ? payload.hero_image_uploads : [],
+      imageSequence: payloadHasHeroImageSequence ? payload.hero_image_sequence : [],
+    });
+
+    nextHeroImages = heroImagePreparation.finalImages;
+    removedHeroImages = heroImagePreparation.removedImages;
+    uploadedHeroImages = heroImagePreparation.uploadedImages;
+  }
+
+  try {
+    const { rows } = await query(
+      `
+        UPDATE storefront_settings
+        SET slug = $2,
+            is_published = $3,
+            reservation_approval_mode = $4,
+            slug_updated_at = $5,
+            map_enabled = $6,
+            map_address = $7,
+            reviews_enabled = $8,
+            reviews_url = $9,
+            hero_images_json = $10
+        WHERE user_id = $1
+        RETURNING *
+      `,
+      [
+        userId,
+        nextSlug,
+        nextPublished,
+        nextApprovalMode,
+        nextSlugUpdatedAt,
+        nextMapEnabled,
+        nextMapAddress,
+        nextReviewsEnabled,
+        nextReviewsUrl,
+        JSON.stringify(nextHeroImages),
+      ]
+    );
+
+    await deleteManagedStorefrontHeroImages(removedHeroImages);
+
+    return serializeStorefrontSettings(rows[0]);
+  } catch (error) {
+    await deleteManagedStorefrontHeroImages(uploadedHeroImages);
+    throw error;
+  }
 };
 
 const resolveStorefrontOwnerBySlug = async (slug, { requirePublished = false } = {}) => {
@@ -921,6 +1170,7 @@ const buildStorefrontPayload = async (
       map_address: settings.map_address || "",
       reviews_enabled: settings.reviews_enabled,
       reviews_url: settings.reviews_url || "",
+      hero_images: settings.hero_images,
       path: `/shop/${settings.slug}`,
     },
     start: planning.start,

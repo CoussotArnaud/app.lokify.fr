@@ -3,9 +3,12 @@ Set-StrictMode -Version Latest
 
 $projectRoot = Split-Path -Path $PSScriptRoot -Parent
 $backupRoot = Join-Path $projectRoot "SAUVEGARDE"
+$legacyRoot = Join-Path $backupRoot "legacy"
 $timestamp = Get-Date -Format "yyyy-MM-dd-HHmmss"
 $backupName = "sauvegarde-$timestamp"
-$backupPath = Join-Path $backupRoot $backupName
+$stagingPath = Join-Path $backupRoot ".staging-$backupName"
+$backupFileName = "$backupName.zip"
+$backupPath = Join-Path $backupRoot $backupFileName
 
 $requiredDirectories = @(
   "backend",
@@ -15,23 +18,68 @@ $requiredDirectories = @(
   "scripts"
 )
 
-$optionalDirectories = @(
-  ".vercel",
-  ".tmp-vercel-backend-link",
-  ".tmp-vercel-frontend-link"
+$requiredRootFiles = @(
+  "AGENTS.md",
+  "README.md",
+  "package-lock.json",
+  "package.json"
 )
 
-$rootFileExclusions = @(
+$excludedTopLevelDirectories = @(
+  ".git",
+  "SAUVEGARDE",
+  "node_modules"
+)
+
+$excludedTopLevelDirectoryPatterns = @(
+  ".tmp*"
+)
+
+$excludedNestedDirectories = @(
+  ".next",
+  ".npm-cache",
+  "node_modules"
+)
+
+$excludedRootFilePatterns = @(
   "*.log",
   ".tmp-*",
   "lokify-*.log"
 )
 
-$requiredRootFiles = @(
-  "package.json",
-  "package-lock.json",
-  "README.md"
-)
+function Test-ExcludedTopLevelDirectory {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$DirectoryName
+  )
+
+  if ($DirectoryName -in $excludedTopLevelDirectories) {
+    return $true
+  }
+
+  foreach ($pattern in $excludedTopLevelDirectoryPatterns) {
+    if ($DirectoryName -like $pattern) {
+      return $true
+    }
+  }
+
+  return $false
+}
+
+function Test-ExcludedRootFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FileName
+  )
+
+  foreach ($pattern in $excludedRootFilePatterns) {
+    if ($FileName -like $pattern) {
+      return $true
+    }
+  }
+
+  return $false
+}
 
 function Invoke-RobocopyDirectory {
   param(
@@ -55,9 +103,7 @@ function Invoke-RobocopyDirectory {
     "/NDL",
     "/NJH",
     "/NJS",
-    "/NP",
-    "/XF",
-    "*.log"
+    "/NP"
   )
 
   if ($ExcludedDirectories.Count -gt 0) {
@@ -72,26 +118,57 @@ function Invoke-RobocopyDirectory {
   }
 }
 
-function Test-ExcludedRootFile {
+function Move-ExistingBackupArtifactsToLegacy {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$FileName
+    [string]$SourceRoot,
+    [Parameter(Mandatory = $true)]
+    [string]$LegacyDestinationRoot
   )
 
-  foreach ($pattern in $rootFileExclusions) {
-    if ($FileName -like $pattern) {
-      return $true
-    }
-  }
+  New-Item -ItemType Directory -Force -Path $LegacyDestinationRoot | Out-Null
 
-  return $false
+  Get-ChildItem -LiteralPath $SourceRoot -Force |
+    Where-Object {
+      $_.Name -ne "legacy" -and
+      $_.Name -notlike ".staging-*" -and
+      $_.Name -notlike "sauvegarde-*.zip"
+    } |
+    ForEach-Object {
+      $destinationPath = Join-Path $LegacyDestinationRoot $_.Name
+
+      if (Test-Path -LiteralPath $destinationPath) {
+        $destinationPath = Join-Path $LegacyDestinationRoot ("{0}-migrated-{1}" -f $_.Name, $timestamp)
+      }
+
+      Move-Item -LiteralPath $_.FullName -Destination $destinationPath -Force
+    }
 }
 
-New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
-New-Item -ItemType Directory -Force -Path $backupPath | Out-Null
+function Remove-StaleStagingDirectories {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceRoot
+  )
 
-$copiedDirectories = New-Object System.Collections.Generic.List[string]
-$copiedRootFiles = New-Object System.Collections.Generic.List[string]
+  Get-ChildItem -LiteralPath $SourceRoot -Force -Directory |
+    Where-Object { $_.Name -like ".staging-*" } |
+    ForEach-Object {
+      Remove-Item -LiteralPath $_.FullName -Recurse -Force
+    }
+}
+
+function Test-ZipContainsDirectory {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string[]]$EntryNames,
+    [Parameter(Mandatory = $true)]
+    [string]$DirectoryName
+  )
+
+  $normalizedPrefix = "$DirectoryName/"
+  return [bool]($EntryNames | Where-Object { $_ -like "$normalizedPrefix*" } | Select-Object -First 1)
+}
 
 foreach ($directoryName in $requiredDirectories) {
   $sourcePath = Join-Path $projectRoot $directoryName
@@ -99,87 +176,152 @@ foreach ($directoryName in $requiredDirectories) {
   if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
     throw "Required directory is missing: $sourcePath"
   }
-
-  $destinationPath = Join-Path $backupPath $directoryName
-  $excludedSubdirectories = @()
-
-  if ($directoryName -in @("backend", "frontend")) {
-    $excludedSubdirectories = @("node_modules", ".next", ".npm-cache")
-  }
-
-  Invoke-RobocopyDirectory -Source $sourcePath -Destination $destinationPath -ExcludedDirectories $excludedSubdirectories
-  $copiedDirectories.Add($directoryName) | Out-Null
-}
-
-foreach ($directoryName in $optionalDirectories) {
-  $sourcePath = Join-Path $projectRoot $directoryName
-
-  if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
-    continue
-  }
-
-  $destinationPath = Join-Path $backupPath $directoryName
-  Invoke-RobocopyDirectory -Source $sourcePath -Destination $destinationPath
-  $copiedDirectories.Add($directoryName) | Out-Null
-}
-
-Get-ChildItem -LiteralPath $projectRoot -Force -File |
-  Where-Object { -not (Test-ExcludedRootFile -FileName $_.Name) } |
-  ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $backupPath $_.Name) -Force
-    $copiedRootFiles.Add($_.Name) | Out-Null
-  }
-
-foreach ($directoryName in $requiredDirectories) {
-  $copiedPath = Join-Path $backupPath $directoryName
-
-  if (-not (Test-Path -LiteralPath $copiedPath -PathType Container)) {
-    throw "Backup validation failed: missing directory '$directoryName' in $backupPath"
-  }
 }
 
 foreach ($fileName in $requiredRootFiles) {
-  $copiedPath = Join-Path $backupPath $fileName
+  $sourcePath = Join-Path $projectRoot $fileName
 
-  if (-not (Test-Path -LiteralPath $copiedPath -PathType Leaf)) {
-    throw "Backup validation failed: missing file '$fileName' in $backupPath"
+  if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+    throw "Required root file is missing: $sourcePath"
   }
 }
 
-$metadata = [PSCustomObject]@{
-  backup_name = $backupName
-  created_at = (Get-Date).ToString("o")
-  project_root = $projectRoot
-  backup_path = $backupPath
-  copied_directories = $copiedDirectories.ToArray()
-  copied_root_files = $copiedRootFiles.ToArray()
-}
+New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+Remove-StaleStagingDirectories -SourceRoot $backupRoot
+Move-ExistingBackupArtifactsToLegacy -SourceRoot $backupRoot -LegacyDestinationRoot $legacyRoot
 
-$metadata |
-  ConvertTo-Json -Depth 5 |
-  Set-Content -LiteralPath (Join-Path $backupPath "backup-metadata.json") -Encoding UTF8
+$copiedDirectories = New-Object System.Collections.Generic.List[string]
+$copiedRootFiles = New-Object System.Collections.Generic.List[string]
+$rotatedBackupsRemoved = New-Object System.Collections.Generic.List[string]
 
-Get-ChildItem -LiteralPath $backupRoot -Directory |
-  Where-Object { $_.Name -like "sauvegarde-*" } |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -Skip 5 |
-  ForEach-Object {
-    $oldBackupPathProperty = $_.PSObject.Properties["FullName"]
+try {
+  New-Item -ItemType Directory -Force -Path $stagingPath | Out-Null
 
-    if ($null -eq $oldBackupPathProperty -or [string]::IsNullOrWhiteSpace([string]$oldBackupPathProperty.Value)) {
-      return
+  Get-ChildItem -LiteralPath $projectRoot -Force -Directory |
+    Where-Object { -not (Test-ExcludedTopLevelDirectory -DirectoryName $_.Name) } |
+    Sort-Object Name |
+    ForEach-Object {
+      $destinationPath = Join-Path $stagingPath $_.Name
+      Invoke-RobocopyDirectory -Source $_.FullName -Destination $destinationPath -ExcludedDirectories $excludedNestedDirectories
+      $copiedDirectories.Add($_.Name) | Out-Null
     }
 
-    $oldBackupPath = [string]$oldBackupPathProperty.Value
+  Get-ChildItem -LiteralPath $projectRoot -Force -File |
+    Where-Object { -not (Test-ExcludedRootFile -FileName $_.Name) } |
+    Sort-Object Name |
+    ForEach-Object {
+      Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagingPath $_.Name) -Force
+      $copiedRootFiles.Add($_.Name) | Out-Null
+    }
 
-    try {
-      Remove-Item -LiteralPath $oldBackupPath -Recurse -Force
-    } catch {
-      Write-Warning "Impossible de supprimer l'ancienne sauvegarde '$oldBackupPath': $($_.Exception.Message)"
+  foreach ($directoryName in $requiredDirectories) {
+    $copiedPath = Join-Path $stagingPath $directoryName
+
+    if (-not (Test-Path -LiteralPath $copiedPath -PathType Container)) {
+      throw "Backup validation failed: missing directory '$directoryName' in $stagingPath"
     }
   }
 
-Get-ChildItem -LiteralPath $backupRoot -Directory |
-  Where-Object { $_.Name -like "sauvegarde-*" } |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object Name, LastWriteTime, FullName
+  foreach ($fileName in $requiredRootFiles) {
+    $copiedPath = Join-Path $stagingPath $fileName
+
+    if (-not (Test-Path -LiteralPath $copiedPath -PathType Leaf)) {
+      throw "Backup validation failed: missing file '$fileName' in $stagingPath"
+    }
+  }
+
+  $metadata = [PSCustomObject]@{
+    schema_version = 2
+    format = "zip"
+    backup_name = $backupName
+    backup_file_name = $backupFileName
+    created_at = (Get-Date).ToString("o")
+    project_root = $projectRoot
+    backup_root = $backupRoot
+    required_directories = $requiredDirectories
+    required_root_files = $requiredRootFiles
+    included_directories = $copiedDirectories.ToArray()
+    included_root_files = $copiedRootFiles.ToArray()
+    excluded_top_level_directories = $excludedTopLevelDirectories
+    excluded_top_level_directory_patterns = $excludedTopLevelDirectoryPatterns
+    excluded_nested_directories = $excludedNestedDirectories
+    excluded_root_file_patterns = $excludedRootFilePatterns
+  }
+
+  $metadata |
+    ConvertTo-Json -Depth 8 |
+    Set-Content -LiteralPath (Join-Path $stagingPath "backup-metadata.json") -Encoding UTF8
+
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+  if (Test-Path -LiteralPath $backupPath) {
+    Remove-Item -LiteralPath $backupPath -Force
+  }
+
+  [System.IO.Compression.ZipFile]::CreateFromDirectory(
+    $stagingPath,
+    $backupPath,
+    [System.IO.Compression.CompressionLevel]::Optimal,
+    $false
+  )
+
+  if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+    throw "Backup creation failed: archive not found at $backupPath"
+  }
+
+  $backupFile = Get-Item -LiteralPath $backupPath
+  if ($backupFile.Length -le 0) {
+    throw "Backup creation failed: archive is empty at $backupPath"
+  }
+
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($backupPath)
+
+  try {
+    $entryNames = $archive.Entries |
+      ForEach-Object { $_.FullName.Replace("\", "/") }
+
+    if ("backup-metadata.json" -notin $entryNames) {
+      throw "Backup validation failed: missing backup-metadata.json inside $backupPath"
+    }
+
+    foreach ($directoryName in $requiredDirectories) {
+      if (-not (Test-ZipContainsDirectory -EntryNames $entryNames -DirectoryName $directoryName)) {
+        throw "Backup validation failed: missing directory '$directoryName' inside $backupPath"
+      }
+    }
+
+    foreach ($fileName in $requiredRootFiles) {
+      if ($fileName -notin $entryNames) {
+        throw "Backup validation failed: missing root file '$fileName' inside $backupPath"
+      }
+    }
+  } finally {
+    $archive.Dispose()
+  }
+
+  Get-ChildItem -LiteralPath $backupRoot -File |
+    Where-Object { $_.Name -like "sauvegarde-*.zip" } |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -Skip 5 |
+    ForEach-Object {
+      $rotatedBackupsRemoved.Add($_.Name) | Out-Null
+      Remove-Item -LiteralPath $_.FullName -Force
+    }
+
+  [PSCustomObject]@{
+    backup_name = $backupName
+    backup_file_name = $backupFileName
+    backup_path = $backupPath
+    format = "zip"
+    backup_root = $backupRoot
+    legacy_root = $legacyRoot
+    created_at = $metadata.created_at
+    included_directories = $copiedDirectories.ToArray()
+    included_root_files = $copiedRootFiles.ToArray()
+    rotated_backups_removed = $rotatedBackupsRemoved.ToArray()
+  }
+} finally {
+  if (Test-Path -LiteralPath $stagingPath) {
+    Remove-Item -LiteralPath $stagingPath -Recurse -Force
+  }
+}

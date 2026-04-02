@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { formatCurrency } from "../../lib/date";
 import BrandLogo from "../brand-logo";
@@ -49,7 +50,6 @@ export function StorefrontTopbar({
       <div className="public-shop-topbar-inner public-shop-v6-topbar-inner">
         <Link href={publicPath} className="public-shop-topbar-brand public-shop-v6-brand">
           <BrandLogo className="public-shop-topbar-logo" />
-          <span>Lokify</span>
         </Link>
 
         <nav className="public-shop-topbar-nav public-shop-v6-topbar-nav" aria-label="Navigation boutique">
@@ -80,7 +80,7 @@ export function StorefrontHero({
   storefrontName,
   storefrontLiveStatus,
   providerLocation,
-  heroImage,
+  heroImages = [],
   bookingForm,
   onBookingFieldChange,
   paymentSummary,
@@ -92,10 +92,33 @@ export function StorefrontHero({
     providerLocation && providerLocation.trim() && providerLocation !== "Boutique publique";
   const heroLocationLabel = hasMeaningfulLocation ? providerLocation : "Service sur reservation";
   const heroMediaCaption = hasMeaningfulLocation ? providerLocation : storefrontName;
+  const normalizedHeroImages = Array.isArray(heroImages) ? heroImages.filter(Boolean) : [];
+  const heroImageKey = normalizedHeroImages.join("::");
+  const [activeHeroImageIndex, setActiveHeroImageIndex] = useState(0);
   const handleReservationCta = () => {
     revealCatalog("all");
     scrollToSection("storefront-catalogue");
   };
+
+  useEffect(() => {
+    setActiveHeroImageIndex(0);
+  }, [heroImageKey]);
+
+  useEffect(() => {
+    if (normalizedHeroImages.length <= 1) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setActiveHeroImageIndex((currentIndex) =>
+        currentIndex + 1 >= normalizedHeroImages.length ? 0 : currentIndex + 1
+      );
+    }, 4000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [normalizedHeroImages.length]);
 
   return (
     <section className="public-shop-v6-hero" id="shop-hero">
@@ -204,8 +227,28 @@ export function StorefrontHero({
       </div>
 
       <div className="public-shop-v6-hero-media">
-        {heroImage ? (
-          <img src={heroImage} alt={storefrontName} className="public-shop-v6-hero-image" />
+        {normalizedHeroImages.length > 1 ? (
+          normalizedHeroImages.map((imageUrl, index) => (
+            <img
+              key={`${imageUrl}-${index}`}
+              src={imageUrl}
+              alt={storefrontName}
+              className="public-shop-v6-hero-image"
+              style={{
+                position: "absolute",
+                inset: 0,
+                opacity: index === activeHeroImageIndex ? 1 : 0,
+                transition: "opacity 480ms ease",
+              }}
+              aria-hidden={index !== activeHeroImageIndex}
+            />
+          ))
+        ) : normalizedHeroImages[0] ? (
+          <img
+            src={normalizedHeroImages[0]}
+            alt={storefrontName}
+            className="public-shop-v6-hero-image"
+          />
         ) : (
           <div className="public-shop-v6-hero-placeholder" aria-hidden="true">
             <div>
@@ -545,47 +588,33 @@ export function StorefrontGuideSection({
   );
 }
 
-export function StorefrontReviewsSection({ storefront, reviewCards }) {
-  if (!storefront?.reviews_enabled || !storefront?.reviews_url) {
+export function StorefrontReviewsSection({ reviewsUrl = "" }) {
+  if (!reviewsUrl) {
     return null;
   }
 
   return (
     <section id="shop-reviews" className="public-shop-section-block public-shop-v6-section">
       <StorefrontSectionHeading
-        eyebrow="Avis"
-        title="Ils nous font confiance"
-        description="Une presentation rassurante pour valoriser les retours clients sans alourdir la page."
-        action={
-          <a href={storefront.reviews_url} className="button ghost" target="_blank" rel="noreferrer">
-            Voir les avis Google
-          </a>
-        }
+        eyebrow="Avis Google"
+        title="Consultez nos avis sur Google"
+        description="Les avis s'ouvrent directement sur la fiche Google officielle dans un nouvel onglet."
       />
 
-      <div className="public-shop-v6-review-badge">
-        <strong>4.9</strong>
-        <span>sur Google</span>
-      </div>
+      <article className="public-shop-v6-review-card public-shop-v6-review-link-card">
+        <div className="public-shop-v6-review-link-copy">
+          <span className="public-shop-v6-review-link-meta">Lien externe officiel</span>
+          <strong>Voir nos avis Google</strong>
+          <p>
+            Le bouton ouvre la fiche Google Maps du prestataire. Les avis ne sont pas integres
+            directement dans la boutique.
+          </p>
+        </div>
 
-      <div className="public-shop-v6-review-grid">
-        {reviewCards.map((review) => (
-          <article key={review.id} className="public-shop-v6-review-card">
-            <div className="public-shop-v6-review-head">
-              <strong>{review.author}</strong>
-              <div className="public-shop-v6-review-stars" aria-hidden="true">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <span key={`${review.id}-star-${index}`}>*</span>
-                ))}
-              </div>
-            </div>
-            <p>{review.copy}</p>
-            <a href={storefront.reviews_url} target="_blank" rel="noreferrer">
-              Lire la suite
-            </a>
-          </article>
-        ))}
-      </div>
+        <a href={reviewsUrl} className="button ghost" target="_blank" rel="noopener noreferrer">
+          Voir nos avis Google
+        </a>
+      </article>
     </section>
   );
 }

@@ -151,6 +151,7 @@ const createMemoryPool = async () => {
       map_address TEXT,
       reviews_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       reviews_url TEXT,
+      hero_images_json TEXT NOT NULL DEFAULT '[]',
       slug_updated_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

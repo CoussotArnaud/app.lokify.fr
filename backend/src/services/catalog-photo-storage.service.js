@@ -198,6 +198,18 @@ export const uploadCatalogCategoryImage = async ({
     },
   });
 
+export const uploadStorefrontHeroImage = async ({ userId, payload = {} }) =>
+  uploadCatalogManagedImage({
+    entityKind: "storefront-hero",
+    entityId: userId,
+    assetKind: "gallery",
+    payload,
+    metadata: {
+      user_id: String(userId),
+      image_kind: "storefront_hero",
+    },
+  });
+
 export const isManagedCatalogPhotoUrl = (photoUrl) => isManagedR2PublicUrl(photoUrl);
 
 export const deleteCatalogManagedPhoto = async (photoUrl) => {
