@@ -1173,6 +1173,7 @@ const buildStorefrontPayload = async (
       reviews_enabled: settings.reviews_enabled,
       reviews_url: settings.reviews_url || "",
       hero_images: settings.hero_image_urls,
+      hero_image_urls: settings.hero_image_urls,
       path: `/shop/${settings.slug}`,
     },
     start: planning.start,

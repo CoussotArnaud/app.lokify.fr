@@ -18,6 +18,7 @@ import {
 } from "../../lib/image-upload";
 import { defaultReservationStatuses } from "../../lib/lokify-data";
 import { buildStorefrontPath, buildStorefrontUrl } from "../../lib/storefront";
+import { normalizeStorefrontHeroImageUrls } from "../../lib/storefront-hero-images";
 import {
   deleteStorefrontTemporaryHeroImage,
   uploadStorefrontHeroImage,
@@ -154,12 +155,6 @@ const providerSettingSections = [
       "Retrouvez ici les activations rapides utiles a votre organisation quotidienne.",
   },
 ];
-
-const normalizeStorefrontHeroImageUrls = (settings) =>
-  (Array.isArray(settings?.hero_images) ? settings.hero_images : [])
-    .map((entry) => (entry && typeof entry === "object" ? entry.url : entry))
-    .map((entry) => String(entry || "").trim())
-    .filter(Boolean);
 
 const buildStorefrontHeroImageItems = (existingImages = [], pendingImages = []) => [
   ...existingImages.map((url) => ({
@@ -676,6 +671,7 @@ function SettingsPageContent() {
     setFeedback(null);
 
     const uploadedHeroImages = [];
+    const expectedHeroImageCount = storefrontHeroImageItems.length;
 
     try {
       for (const pendingPhoto of pendingStorefrontHeroImages) {
@@ -691,18 +687,34 @@ function SettingsPageContent() {
           hero_image_sequence: storefrontHeroImageItems.map(buildStorefrontHeroImageSequenceEntry),
         },
       });
+      const persistedResponse = await apiRequest("/storefront/settings");
+      const persistedStorefrontSettings =
+        persistedResponse.storefrontSettings || response.storefrontSettings;
+      const persistedHeroImages = normalizeStorefrontHeroImageUrls(persistedStorefrontSettings);
 
-      setStorefrontSettings(response.storefrontSettings);
+      if (
+        pendingStorefrontHeroImages.length > 0 &&
+        expectedHeroImageCount > 0 &&
+        persistedHeroImages.length < expectedHeroImageCount
+      ) {
+        const verificationError = new Error(
+          "Les images du bloc photo n'ont pas pu etre confirmees apres l'enregistrement."
+        );
+        verificationError.code = "storefront_image_persist_failed";
+        throw verificationError;
+      }
+
+      setStorefrontSettings(persistedStorefrontSettings);
       setStorefrontForm({
-        slug: response.storefrontSettings?.slug || "",
-        is_published: Boolean(response.storefrontSettings?.is_published),
+        slug: persistedStorefrontSettings?.slug || "",
+        is_published: Boolean(persistedStorefrontSettings?.is_published),
         reservation_approval_mode:
-          response.storefrontSettings?.reservation_approval_mode || "manual",
-        map_enabled: Boolean(response.storefrontSettings?.map_enabled),
-        map_address: response.storefrontSettings?.map_address || "",
-        reviews_enabled: Boolean(response.storefrontSettings?.reviews_enabled),
-        reviews_url: response.storefrontSettings?.reviews_url || "",
-        hero_images: normalizeStorefrontHeroImageUrls(response.storefrontSettings),
+          persistedStorefrontSettings?.reservation_approval_mode || "manual",
+        map_enabled: Boolean(persistedStorefrontSettings?.map_enabled),
+        map_address: persistedStorefrontSettings?.map_address || "",
+        reviews_enabled: Boolean(persistedStorefrontSettings?.reviews_enabled),
+        reviews_url: persistedStorefrontSettings?.reviews_url || "",
+        hero_images: persistedHeroImages,
       });
       setPendingStorefrontHeroImages([]);
       setFeedback({

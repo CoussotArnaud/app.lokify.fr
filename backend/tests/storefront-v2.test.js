@@ -2,24 +2,157 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import test from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
+
+import sharp from "sharp";
 
 import { query } from "../src/config/db.js";
 import { createCatalogPack, upsertItemProfile } from "../src/services/catalog.service.js";
+import {
+  resetCloudflareR2ServiceOverrideForTests,
+  setCloudflareR2ServiceOverrideForTests,
+} from "../src/services/cloudflare-r2.service.js";
 import { createReservation } from "../src/services/reservations.service.js";
 import {
+  finalizeStorefrontHeroImageUpload,
   getPublicStorefrontPreview,
   getStorefrontPreview,
   getStorefrontSettings,
+  startStorefrontHeroImageUpload,
   submitPublicStorefrontRequest,
   submitStorefrontRequest,
+  uploadStorefrontHeroImageChunk,
   updateStorefrontSettings,
 } from "../src/services/storefront.service.js";
 import { updateItem } from "../src/services/items.service.js";
 
 const projectRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const storefrontMailOutboxDir = path.join(projectRoot, ".lokify-runtime", "mail-outbox");
+const uploadedObjectKeys = [];
+const deletedObjectKeys = [];
+const objectStore = new Map();
+const multipartStore = new Map();
+
+const buildManagedPhotoUrl = (objectKey) =>
+  `https://cdn.lokify.test/${String(objectKey || "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+
+const extractManagedObjectKey = (photoUrl) => {
+  const prefix = "https://cdn.lokify.test/";
+
+  if (!String(photoUrl || "").startsWith(prefix)) {
+    return null;
+  }
+
+  return decodeURIComponent(String(photoUrl).slice(prefix.length));
+};
+
+beforeEach(() => {
+  uploadedObjectKeys.length = 0;
+  deletedObjectKeys.length = 0;
+  objectStore.clear();
+  multipartStore.clear();
+
+  setCloudflareR2ServiceOverrideForTests({
+    buildPublicUrl: buildManagedPhotoUrl,
+    extractObjectKeyFromPublicUrl: extractManagedObjectKey,
+    isManagedPublicUrl: (photoUrl) => String(photoUrl || "").startsWith("https://cdn.lokify.test/"),
+    createMultipartUpload: async ({ objectKey, contentType, metadata }) => {
+      const uploadId = `upload-${crypto.randomUUID()}`;
+      multipartStore.set(`${objectKey}::${uploadId}`, {
+        contentType,
+        metadata,
+        parts: new Map(),
+      });
+      return {
+        objectKey,
+        uploadId,
+      };
+    },
+    uploadMultipartPart: async ({ objectKey, uploadId, partNumber, body }) => {
+      const uploadKey = `${objectKey}::${uploadId}`;
+      const session = multipartStore.get(uploadKey);
+
+      session.parts.set(Number(partNumber), Buffer.from(body));
+
+      return {
+        etag: `etag-${partNumber}`,
+        partNumber,
+      };
+    },
+    completeMultipartUpload: async ({ objectKey, uploadId, parts }) => {
+      const uploadKey = `${objectKey}::${uploadId}`;
+      const session = multipartStore.get(uploadKey);
+      const orderedBuffer = Buffer.concat(
+        (Array.isArray(parts) ? parts : [])
+          .sort(
+            (left, right) =>
+              Number(left.partNumber ?? left.part_number) -
+              Number(right.partNumber ?? right.part_number)
+          )
+          .map((part) =>
+            session.parts.get(Number(part.partNumber ?? part.part_number)) || Buffer.alloc(0)
+          )
+      );
+
+      objectStore.set(objectKey, {
+        body: orderedBuffer,
+        contentType: session.contentType || "application/octet-stream",
+        metadata: session.metadata || {},
+      });
+      multipartStore.delete(uploadKey);
+
+      return {
+        objectKey,
+        publicUrl: buildManagedPhotoUrl(objectKey),
+      };
+    },
+    abortMultipartUpload: async ({ objectKey, uploadId }) => {
+      multipartStore.delete(`${objectKey}::${uploadId}`);
+    },
+    headObject: async (objectKey) => {
+      const object = objectStore.get(objectKey);
+
+      return {
+        contentLength: object?.body?.length || 0,
+        contentType: object?.contentType || "application/octet-stream",
+        metadata: object?.metadata || {},
+      };
+    },
+    downloadObject: async (objectKey) => {
+      const object = objectStore.get(objectKey);
+
+      return {
+        body: object?.body || Buffer.alloc(0),
+        contentType: object?.contentType || "application/octet-stream",
+        metadata: object?.metadata || {},
+      };
+    },
+    uploadObject: async ({ objectKey, body, contentType, metadata }) => {
+      uploadedObjectKeys.push(objectKey);
+      objectStore.set(objectKey, {
+        body: Buffer.from(body),
+        contentType,
+        metadata,
+      });
+      return {
+        objectKey,
+        publicUrl: buildManagedPhotoUrl(objectKey),
+      };
+    },
+    deleteObject: async (objectKey) => {
+      deletedObjectKeys.push(objectKey);
+      objectStore.delete(objectKey);
+    },
+  });
+});
+
+afterEach(() => {
+  resetCloudflareR2ServiceOverrideForTests();
+});
 
 const getDemoUserId = async () => {
   const { rows } = await query(
@@ -51,6 +184,43 @@ const getStorefrontItems = async (userId) => {
   );
 
   return rows;
+};
+
+const buildStorefrontHeroUpload = async (userId, clientId) => {
+  const buffer = await sharp({
+    create: {
+      width: 1600,
+      height: 1200,
+      channels: 3,
+      background: {
+        r: 214,
+        g: 126,
+        b: 88,
+      },
+    },
+  })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+
+  const uploadSession = await startStorefrontHeroImageUpload(userId, {
+    file_name: `${clientId}.jpg`,
+    mime_type: "image/jpeg",
+    size_bytes: buffer.length,
+  });
+  const part = await uploadStorefrontHeroImageChunk(userId, uploadSession.uploadId, {
+    object_key: uploadSession.objectKey,
+    part_number: 1,
+    data_base64: buffer.toString("base64"),
+  });
+
+  return finalizeStorefrontHeroImageUpload(userId, uploadSession.uploadId, {
+    object_key: uploadSession.objectKey,
+    parts: [part],
+    client_id: clientId,
+    file_name: `${clientId}.jpg`,
+    mime_type: "image/jpeg",
+    size_bytes: buffer.length,
+  });
 };
 
 test("storefront preview exposes visible products with real availability", async () => {
@@ -245,6 +415,103 @@ test("public storefront uses persisted settings, publication status and automati
       }),
     /Boutique indisponible/
   );
+});
+
+test("storefront hero images persist after upload, reload, public read and replacement", async () => {
+  const userId = await getDemoUserId();
+  const originalSettings = await getStorefrontSettings(userId);
+  const originalHeroImages = [...(originalSettings.hero_image_urls || [])];
+  const startDate = new Date(Date.now() + (460 + Math.floor(Math.random() * 30)) * 24 * 60 * 60 * 1000);
+  const endDate = new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000);
+
+  try {
+    const firstUpload = await buildStorefrontHeroUpload(userId, `hero-${crypto.randomUUID().slice(0, 8)}`);
+    const firstSavedSettings = await updateStorefrontSettings(userId, {
+      slug: originalSettings.slug,
+      is_published: true,
+      reservation_approval_mode: originalSettings.reservation_approval_mode,
+      hero_images: [],
+      hero_image_uploads: [firstUpload],
+      hero_image_sequence: [`upload:${firstUpload.client_id}`],
+    });
+    const firstReloadedSettings = await getStorefrontSettings(userId);
+    const firstPublicPreview = await getPublicStorefrontPreview(originalSettings.slug, {
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+    });
+    const { rows: firstPersistedRows } = await query(
+      "SELECT hero_images_json FROM storefront_settings WHERE user_id = $1 LIMIT 1",
+      [userId]
+    );
+    const firstPersistedImages = JSON.parse(firstPersistedRows[0].hero_images_json || "[]");
+
+    assert.equal(firstSavedSettings.hero_images.length, 1);
+    assert.equal(firstReloadedSettings.hero_images.length, 1);
+    assert.equal(firstPublicPreview.storefront.hero_images.length, 1);
+    assert.equal(firstPersistedImages.length, 1);
+    assert.match(firstSavedSettings.hero_images[0].url, /^https:\/\/cdn\.lokify\.test\/storefronts\//);
+    assert.equal(
+      firstReloadedSettings.hero_images[0].url,
+      firstSavedSettings.hero_images[0].url
+    );
+    assert.equal(
+      firstPublicPreview.storefront.hero_images[0],
+      firstSavedSettings.hero_images[0].url
+    );
+    assert.equal(firstPersistedImages[0].url, firstSavedSettings.hero_images[0].url);
+    assert.equal(firstPersistedImages[0].url.includes("storefront-temp/"), false);
+
+    const replacedImageUrl = firstSavedSettings.hero_images[0].url;
+    const secondUpload = await buildStorefrontHeroUpload(userId, `hero-${crypto.randomUUID().slice(0, 8)}`);
+    const replacedSettings = await updateStorefrontSettings(userId, {
+      slug: originalSettings.slug,
+      is_published: true,
+      reservation_approval_mode: originalSettings.reservation_approval_mode,
+      hero_images: [],
+      hero_image_uploads: [secondUpload],
+      hero_image_sequence: [`upload:${secondUpload.client_id}`],
+    });
+    const replacedPublicPreview = await getPublicStorefrontPreview(originalSettings.slug, {
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+    });
+
+    assert.equal(replacedSettings.hero_images.length, 1);
+    assert.notEqual(replacedSettings.hero_images[0].url, replacedImageUrl);
+    assert.deepEqual(replacedPublicPreview.storefront.hero_images, [
+      replacedSettings.hero_images[0].url,
+    ]);
+    assert.ok(
+      deletedObjectKeys.some((objectKey) => objectKey === extractManagedObjectKey(replacedImageUrl))
+    );
+
+    const removedSettings = await updateStorefrontSettings(userId, {
+      slug: originalSettings.slug,
+      is_published: true,
+      reservation_approval_mode: originalSettings.reservation_approval_mode,
+      hero_images: [],
+      hero_image_sequence: [],
+    });
+    const removedPublicPreview = await getPublicStorefrontPreview(originalSettings.slug, {
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+    });
+
+    assert.deepEqual(removedSettings.hero_images, []);
+    assert.deepEqual(removedPublicPreview.storefront.hero_images, []);
+  } finally {
+    await updateStorefrontSettings(userId, {
+      slug: originalSettings.slug,
+      is_published: originalSettings.is_published,
+      reservation_approval_mode: originalSettings.reservation_approval_mode,
+      map_enabled: originalSettings.map_enabled,
+      map_address: originalSettings.map_address,
+      reviews_enabled: originalSettings.reviews_enabled,
+      reviews_url: originalSettings.reviews_url,
+      hero_images: originalHeroImages,
+      hero_image_sequence: originalHeroImages,
+    });
+  }
 });
 
 test("storefront supports packs and product options inside a multi-entry cart", async () => {
