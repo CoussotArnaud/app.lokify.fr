@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "../../components/app-shell";
@@ -254,6 +254,7 @@ function SettingsPageContent() {
   const [providerForm, setProviderForm] = useState(initialProviderForm);
   const [storefrontForm, setStorefrontForm] = useState(initialStorefrontForm);
   const [pendingStorefrontHeroImages, setPendingStorefrontHeroImages] = useState([]);
+  const [preparingStorefrontHeroImages, setPreparingStorefrontHeroImages] = useState(false);
   const [localPreferences, setLocalPreferences] = useState(initialLocalPreferences);
   const [reservationStatuses, setReservationStatuses] = useState(defaultReservationStatuses);
   const [savingStatuses, setSavingStatuses] = useState(false);
@@ -262,6 +263,9 @@ function SettingsPageContent() {
   const [savingStorefront, setSavingStorefront] = useState(false);
   const [connectingStripe, setConnectingStripe] = useState(false);
   const [disconnectingStripe, setDisconnectingStripe] = useState(false);
+  const storefrontFormRef = useRef(initialStorefrontForm);
+  const pendingStorefrontHeroImagesRef = useRef([]);
+  const storefrontHeroImagePreparationRef = useRef(Promise.resolve());
 
   const loadSettings = async () => {
     setLoading(true);
@@ -312,6 +316,14 @@ function SettingsPageContent() {
 
     loadSettings();
   }, [user?.id, user?.account_role]);
+
+  useEffect(() => {
+    storefrontFormRef.current = storefrontForm;
+  }, [storefrontForm]);
+
+  useEffect(() => {
+    pendingStorefrontHeroImagesRef.current = pendingStorefrontHeroImages;
+  }, [pendingStorefrontHeroImages]);
 
   useEffect(() => {
     if (!user) {
@@ -591,13 +603,19 @@ function SettingsPageContent() {
 
   const updateStorefrontHeroImageCollections = (updater) => {
     const nextItems = updater(
-      buildStorefrontHeroImageItems(storefrontForm.hero_images, pendingStorefrontHeroImages)
+      buildStorefrontHeroImageItems(
+        storefrontFormRef.current.hero_images,
+        pendingStorefrontHeroImagesRef.current
+      )
     );
     const nextCollections = splitStorefrontHeroImageItems(nextItems);
-    setStorefrontForm((current) => ({
-      ...current,
+    const nextStorefrontForm = {
+      ...storefrontFormRef.current,
       hero_images: nextCollections.heroImages,
-    }));
+    };
+    storefrontFormRef.current = nextStorefrontForm;
+    pendingStorefrontHeroImagesRef.current = nextCollections.pendingImages;
+    setStorefrontForm(nextStorefrontForm);
     setPendingStorefrontHeroImages(nextCollections.pendingImages);
   };
 
@@ -609,59 +627,76 @@ function SettingsPageContent() {
 
   const addStorefrontHeroImages = async (files) => {
     const selectedFiles = Array.from(files || []);
-    const remainingSlots =
-      MAX_STOREFRONT_HERO_IMAGES - (storefrontForm.hero_images.length + pendingStorefrontHeroImages.length);
 
     if (!selectedFiles.length) {
       return;
     }
 
-    if (remainingSlots <= 0) {
-      setFeedback({
-        type: "error",
-        message: `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`,
+    const nextPreparation = storefrontHeroImagePreparationRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const remainingSlots =
+          MAX_STOREFRONT_HERO_IMAGES -
+          (storefrontFormRef.current.hero_images.length + pendingStorefrontHeroImagesRef.current.length);
+
+        if (remainingSlots <= 0) {
+          setFeedback({
+            type: "error",
+            message: `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`,
+          });
+          return;
+        }
+
+        const preparedPhotos = [];
+        const messages = [];
+
+        for (const file of selectedFiles.slice(0, remainingSlots)) {
+          try {
+            const preparedPhoto = await prepareImageUpload(file, {
+              maxSizeBytes: MAX_IMAGE_UPLOAD_SIZE_BYTES,
+              includeDataUrl: true,
+            });
+            preparedPhotos.push(preparedPhoto);
+          } catch (submissionError) {
+            messages.push(buildStorefrontHeroImageErrorMessage(submissionError));
+          }
+        }
+
+        if (selectedFiles.length > remainingSlots) {
+          messages.push(
+            `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`
+          );
+        }
+
+        if (preparedPhotos.length) {
+          updateStorefrontHeroImageCollections((currentItems) => [
+            ...currentItems,
+            ...buildStorefrontHeroImageItems([], preparedPhotos),
+          ]);
+          setFeedback({
+            type: messages.length ? "error" : "success",
+            message: messages[0] || `${preparedPhotos.length} image(s) prete(s) a etre enregistree(s).`,
+          });
+          return;
+        }
+
+        if (messages.length) {
+          setFeedback({
+            type: "error",
+            message: messages[0],
+          });
+        }
       });
-      return;
-    }
 
-    const preparedPhotos = [];
-    const messages = [];
+    storefrontHeroImagePreparationRef.current = nextPreparation;
+    setPreparingStorefrontHeroImages(true);
 
-    for (const file of selectedFiles.slice(0, remainingSlots)) {
-      try {
-        const preparedPhoto = await prepareImageUpload(file, {
-          maxSizeBytes: MAX_IMAGE_UPLOAD_SIZE_BYTES,
-          includeDataUrl: true,
-        });
-        preparedPhotos.push(preparedPhoto);
-      } catch (submissionError) {
-        messages.push(buildStorefrontHeroImageErrorMessage(submissionError));
+    try {
+      await nextPreparation;
+    } finally {
+      if (storefrontHeroImagePreparationRef.current === nextPreparation) {
+        setPreparingStorefrontHeroImages(false);
       }
-    }
-
-    if (selectedFiles.length > remainingSlots) {
-      messages.push(
-        `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`
-      );
-    }
-
-    if (preparedPhotos.length) {
-      updateStorefrontHeroImageCollections((currentItems) => [
-        ...currentItems,
-        ...buildStorefrontHeroImageItems([], preparedPhotos),
-      ]);
-      setFeedback({
-        type: messages.length ? "error" : "success",
-        message: messages[0] || `${preparedPhotos.length} image(s) prete(s) a etre enregistree(s).`,
-      });
-      return;
-    }
-
-    if (messages.length) {
-      setFeedback({
-        type: "error",
-        message: messages[0],
-      });
     }
   };
 
@@ -670,11 +705,19 @@ function SettingsPageContent() {
     setSavingStorefront(true);
     setFeedback(null);
 
+    await storefrontHeroImagePreparationRef.current.catch(() => undefined);
+
+    const currentStorefrontForm = storefrontFormRef.current;
+    const currentPendingStorefrontHeroImages = pendingStorefrontHeroImagesRef.current;
+    const currentStorefrontHeroImageItems = buildStorefrontHeroImageItems(
+      currentStorefrontForm.hero_images,
+      currentPendingStorefrontHeroImages
+    );
     const uploadedHeroImages = [];
-    const expectedHeroImageCount = storefrontHeroImageItems.length;
+    const expectedHeroImageCount = currentStorefrontHeroImageItems.length;
 
     try {
-      for (const pendingPhoto of pendingStorefrontHeroImages) {
+      for (const pendingPhoto of currentPendingStorefrontHeroImages) {
         const uploadedPhoto = await uploadStorefrontHeroImage(pendingPhoto);
         uploadedHeroImages.push(uploadedPhoto);
       }
@@ -682,9 +725,11 @@ function SettingsPageContent() {
       const response = await apiRequest("/storefront/settings", {
         method: "PUT",
         body: {
-          ...storefrontForm,
+          ...currentStorefrontForm,
           hero_image_uploads: uploadedHeroImages,
-          hero_image_sequence: storefrontHeroImageItems.map(buildStorefrontHeroImageSequenceEntry),
+          hero_image_sequence: currentStorefrontHeroImageItems.map(
+            buildStorefrontHeroImageSequenceEntry
+          ),
         },
       });
       const persistedResponse = await apiRequest("/storefront/settings");
@@ -693,7 +738,7 @@ function SettingsPageContent() {
       const persistedHeroImages = normalizeStorefrontHeroImageUrls(persistedStorefrontSettings);
 
       if (
-        pendingStorefrontHeroImages.length > 0 &&
+        currentPendingStorefrontHeroImages.length > 0 &&
         expectedHeroImageCount > 0 &&
         persistedHeroImages.length < expectedHeroImageCount
       ) {
@@ -1626,9 +1671,13 @@ function SettingsPageContent() {
                 </div>
 
                 <div className="row-actions">
-                  <button type="submit" className="button primary" disabled={savingStorefront}>
-                    {savingStorefront
-                      ? pendingStorefrontHeroImages.length
+                  <button
+                    type="submit"
+                    className="button primary"
+                    disabled={savingStorefront || preparingStorefrontHeroImages}
+                  >
+                    {savingStorefront || preparingStorefrontHeroImages
+                      ? storefrontHeroImageItems.length
                         ? "Import et enregistrement..."
                         : "Enregistrement..."
                       : "Enregistrer la boutique en ligne"}
@@ -1642,7 +1691,12 @@ function SettingsPageContent() {
                     Copier le lien
                   </button>
                   {storefrontPath ? (
-                    <Link href={storefrontPath} className="button secondary" target="_blank">
+                    <Link
+                      href={storefrontPath}
+                      className="button secondary"
+                      target="_blank"
+                      prefetch={false}
+                    >
                       Voir ma boutique en ligne
                     </Link>
                   ) : null}
