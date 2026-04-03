@@ -76,8 +76,15 @@ const buildCategoryRows = (categories, products) => {
 
 const isStockManagedProduct = (product) => {
   const totalStock = Number(product.stock || 0);
-  const availableUnits = Number(product.availableUnits || 0);
-  return Boolean(product.profile?.serial_tracking || totalStock > 1 || Number(product.reservedUnits || 0) > 0 || Number(product.unavailableUnits || 0) > 0 || availableUnits !== totalStock);
+  return Boolean(
+    product.profile?.serial_tracking ||
+      totalStock > 1 ||
+      Number(product.reservedUnits || 0) > 0 ||
+      Number(product.checkedOutUnits || 0) > 0 ||
+      Number(product.trackedUnavailableUnits || 0) > 0 ||
+      Number(product.trackedUnitsCount || 0) > 0 ||
+      Number(product.unitCoverageGap || 0) > 0
+  );
 };
 
 const buildProductPayload = (product, overrides = {}) => ({
@@ -126,21 +133,72 @@ const buildPackPayload = (pack, overrides = {}) => ({
 });
 
 const getPackMeta = (pack) => ({
-  tone: pack.is_active ? "success" : "danger",
-  label: pack.is_active ? "Disponible" : "Indisponible",
+  rowTone: pack.is_active ? "success" : "danger",
+  statusTone: pack.is_active ? "success" : "danger",
+  statusLabel: pack.is_active ? "Actif" : "Inactif",
   filterKey: pack.is_active ? "available" : "unavailable",
   coverImage: pack.cover_image || (Array.isArray(pack.linkedProducts) ? pack.linkedProducts.find((product) => product.thumbnail)?.thumbnail || "" : ""),
 });
 
 const getProductMeta = (product) => {
-  if (!isStockManagedProduct(product)) return { stockManaged: false, tone: product.isActive ? "success" : "danger", label: product.isActive ? "Disponible" : "Indisponible", filterKey: product.isActive ? "available" : "unavailable", stockLabel: "Toggle manuel", hint: product.isActive ? "Activation manuelle." : "Coupe manuelle." };
+  const statusTone = product.isActive ? "success" : "danger";
+  const statusLabel = product.isActive ? "Actif" : "Inactif";
+  if (!isStockManagedProduct(product)) {
+    return {
+      stockManaged: false,
+      rowTone: statusTone,
+      statusTone,
+      statusLabel,
+      filterKey: product.isActive ? "available" : "unavailable",
+      stockLabel: "Manuel",
+      hint: product.isActive ? "Activation manuelle." : "Produit desactive manuellement.",
+    };
+  }
   const total = Number(product.stock || 0);
   const available = Number(product.availableUnits || 0);
   const ratio = `${available}/${total}`;
-  if (!product.isActive) return { stockManaged: true, tone: "danger", label: `Indisponible ${ratio}`, filterKey: "unavailable", stockLabel: ratio, hint: "Produit desactive." };
-  if (available <= 0) return { stockManaged: true, tone: "danger", label: `Rupture ${ratio}`, filterKey: "out_of_stock", stockLabel: ratio, hint: "Aucune unite disponible." };
-  if (available < total) return { stockManaged: true, tone: "warning", label: `Stock faible ${ratio}`, filterKey: "available", stockLabel: ratio, hint: "Disponibilite partielle." };
-  return { stockManaged: true, tone: "success", label: `Disponible ${ratio}`, filterKey: "available", stockLabel: ratio, hint: "Stock complet." };
+  if (!product.isActive) {
+    return {
+      stockManaged: true,
+      rowTone: "danger",
+      statusTone,
+      statusLabel,
+      filterKey: "unavailable",
+      stockLabel: ratio,
+      hint: `Stock ${ratio}. Produit desactive.`,
+    };
+  }
+  if (available <= 0) {
+    return {
+      stockManaged: true,
+      rowTone: "danger",
+      statusTone,
+      statusLabel,
+      filterKey: "out_of_stock",
+      stockLabel: ratio,
+      hint: `Stock ${ratio}. Aucune unite disponible.`,
+    };
+  }
+  if (available < total) {
+    return {
+      stockManaged: true,
+      rowTone: "warning",
+      statusTone,
+      statusLabel,
+      filterKey: "available",
+      stockLabel: ratio,
+      hint: `Stock ${ratio}. Disponibilite partielle.`,
+    };
+  }
+  return {
+    stockManaged: true,
+    rowTone: "success",
+    statusTone,
+    statusLabel,
+    filterKey: "available",
+    stockLabel: ratio,
+    hint: `Stock ${ratio}. Stock complet.`,
+  };
 };
 
 const matchesSelectedCategory = (product, selectedCategoryRecord) => {
@@ -296,7 +354,6 @@ export default function CataloguePage() {
     : productCards.length
       ? "Visible dans la vue courante."
       : "Aucun produit pour ce filtre.";
-  const manualProducts = productCards.filter((product) => !product.ui.stockManaged);
   const isBusy = workspace.loading || workspace.mutating || isBatching;
   const selectedCategoryHref = selectedCategoryRecord && !selectedCategoryRecord.isUncategorized && !selectedCategoryRecord.isAllProducts ? `/catalogue/produits/nouveau?category=${encodeURIComponent(selectedCategoryRecord.id)}` : "/catalogue/produits/nouveau";
   const resetMessages = () => { setError(""); setFeedback(""); };
@@ -316,21 +373,26 @@ export default function CataloguePage() {
   };
 
   const handlePackToggle = async (pack, nextValue) => {
+    if (availabilityFilter !== "all") {
+      setAvailabilityFilter("all");
+    }
     resetMessages();
     try {
       await workspace.saveCatalogPack(buildPackPayload(pack, { is_active: nextValue }), pack.id);
-      setFeedback(nextValue ? "Pack rendu disponible." : "Pack rendu indisponible.");
+      setFeedback(nextValue ? "Pack actif." : "Pack inactif.");
     } catch (submissionError) {
       setError(submissionError.message);
     }
   };
 
   const handleProductToggle = async (product, nextValue) => {
-    if (product.ui.stockManaged) return;
+    if (availabilityFilter !== "all") {
+      setAvailabilityFilter("all");
+    }
     resetMessages();
     try {
       await workspace.saveItemProfile(product.id, buildProductPayload(product, { is_active: nextValue }));
-      setFeedback(nextValue ? "Produit rendu disponible." : "Produit rendu indisponible.");
+      setFeedback(nextValue ? "Produit actif." : "Produit inactif.");
     } catch (submissionError) {
       setError(submissionError.message);
     }
@@ -398,10 +460,10 @@ export default function CataloguePage() {
   };
 
   const globalActionItems = [
-    { id: "packs-enable", label: "Activer les packs visibles", onClick: () => void runBatchMutation(() => Promise.all(packCards.map((pack) => apiRequest(`/catalog/packs/${pack.id}`, { method: "PUT", body: buildPackPayload(pack, { is_active: true }) }))), "Tous les packs visibles sont disponibles."), disabled: !packCards.length || isBusy },
-    { id: "packs-disable", label: "Desactiver les packs visibles", onClick: () => void runBatchMutation(() => Promise.all(packCards.map((pack) => apiRequest(`/catalog/packs/${pack.id}`, { method: "PUT", body: buildPackPayload(pack, { is_active: false }) }))), "Tous les packs visibles sont indisponibles."), disabled: !packCards.length || isBusy },
-    { id: "products-enable", label: "Activer les produits manuels visibles", onClick: () => void runBatchMutation(() => Promise.all(manualProducts.map((product) => apiRequest(`/catalog/item-profiles/${product.id}`, { method: "PUT", body: buildProductPayload(product, { is_active: true }) }))), "Les produits manuels visibles sont disponibles."), disabled: !manualProducts.length || isBusy },
-    { id: "products-disable", label: "Desactiver les produits manuels visibles", onClick: () => void runBatchMutation(() => Promise.all(manualProducts.map((product) => apiRequest(`/catalog/item-profiles/${product.id}`, { method: "PUT", body: buildProductPayload(product, { is_active: false }) }))), "Les produits manuels visibles sont indisponibles."), disabled: !manualProducts.length || isBusy },
+    { id: "packs-enable", label: "Activer les packs visibles", onClick: () => void runBatchMutation(() => Promise.all(packCards.map((pack) => apiRequest(`/catalog/packs/${pack.id}`, { method: "PUT", body: buildPackPayload(pack, { is_active: true }) }))), "Tous les packs visibles sont actifs."), disabled: !packCards.length || isBusy },
+    { id: "packs-disable", label: "Desactiver les packs visibles", onClick: () => void runBatchMutation(() => Promise.all(packCards.map((pack) => apiRequest(`/catalog/packs/${pack.id}`, { method: "PUT", body: buildPackPayload(pack, { is_active: false }) }))), "Tous les packs visibles sont inactifs."), disabled: !packCards.length || isBusy },
+    { id: "products-enable", label: "Activer les produits visibles", onClick: () => void runBatchMutation(() => Promise.all(productCards.map((product) => apiRequest(`/catalog/item-profiles/${product.id}`, { method: "PUT", body: buildProductPayload(product, { is_active: true }) }))), "Les produits visibles sont actifs."), disabled: !productCards.length || isBusy },
+    { id: "products-disable", label: "Desactiver les produits visibles", onClick: () => void runBatchMutation(() => Promise.all(productCards.map((product) => apiRequest(`/catalog/item-profiles/${product.id}`, { method: "PUT", body: buildProductPayload(product, { is_active: false }) }))), "Les produits visibles sont inactifs."), disabled: !productCards.length || isBusy },
   ];
 
   return (
@@ -457,10 +519,10 @@ export default function CataloguePage() {
           ) : packCards.length ? (
             <div className="catalog-pack-grid">
               {packCards.map((pack) => (
-                <article key={pack.id} className={`catalog-premium-card catalog-pack-card-premium tone-${pack.ui.tone}`.trim()}>
+                <article key={pack.id} className={`catalog-premium-card catalog-pack-card-premium tone-${pack.ui.rowTone}`.trim()}>
                   <Link href={`/catalogue/packs/nouveau?pack=${pack.id}`} className="catalog-card-media-link">
                     <Media src={pack.ui.coverImage} label={pack.name} kind="pack" />
-                    <div className="catalog-card-media-overlay"><Badge tone={pack.ui.tone} label={pack.ui.label} /></div>
+                    <div className="catalog-card-media-overlay"><Badge tone={pack.ui.statusTone} label={pack.ui.statusLabel} /></div>
                   </Link>
                   <div className="catalog-card-content">
                     <div className="catalog-card-head">
@@ -469,7 +531,7 @@ export default function CataloguePage() {
                         <p>{pack.description || "Pack disponible a la vente ou a la location dans votre catalogue."}</p>
                       </div>
                       <div className="catalog-card-actions-cluster">
-                        <div className="catalog-card-toggle-cluster"><span className="catalog-toggle-caption">Disponibilite</span><ToggleSwitch checked={Boolean(pack.is_active)} compact disabled={isBusy} label={pack.is_active ? "Disponible" : "Indisponible"} onChange={(nextValue) => void handlePackToggle(pack, nextValue)} /></div>
+                        <div className="catalog-card-toggle-cluster"><span className="catalog-toggle-caption">Statut</span><ToggleSwitch checked={Boolean(pack.is_active)} compact disabled={isBusy} label={pack.ui.statusLabel} onChange={(nextValue) => void handlePackToggle(pack, nextValue)} /></div>
                         <div className="row-actions catalog-hover-actions">
                           <ActionMenu triggerClassName="action-button catalog-menu-trigger" triggerLabel={<Icon name="dots" size={16} />} triggerTitle={`Actions rapides pack ${pack.name}`} items={[{ id: `duplicate-pack-${pack.id}`, label: "Dupliquer", onClick: () => void handleDuplicatePack(pack.id), disabled: isBusy }, { id: `link-pack-${pack.id}`, label: "Generer un lien", onClick: () => void handleGeneratePackLink(pack) }]} />
                           <button type="button" className="action-button danger catalog-delete-button" onClick={() => setPendingDelete({ type: "pack", id: pack.id, name: pack.name })} disabled={isBusy} aria-label={`Supprimer le pack ${pack.name}`}><Icon name="trash" size={16} /></button>
@@ -550,14 +612,14 @@ export default function CataloguePage() {
           ) : productCards.length ? (
             <div className="catalog-product-list">
               {productCards.map((product) => (
-                <article key={product.id} className={`catalog-product-row tone-${product.ui.tone}`.trim()}>
+                <article key={product.id} className={`catalog-product-row tone-${product.ui.rowTone}`.trim()}>
                   <Link href={`/catalogue/produits/nouveau?product=${product.id}&mode=edit`} className="catalog-product-row-media-link">
                     <Media src={product.thumbnail} label={product.public_name || product.name} kind="row" />
                   </Link>
                   <div className="catalog-product-row-main">
                     <div className="catalog-product-row-copy">
                       <div className="catalog-card-topline">
-                        <Badge tone={product.ui.tone} label={product.ui.label} />
+                        <Badge tone={product.ui.statusTone} label={product.ui.statusLabel} />
                         <span className="catalog-inline-tag subtle">{product.category || "Sans categorie"}</span>
                       </div>
                       <Link href={`/catalogue/produits/nouveau?product=${product.id}&mode=edit`} className="catalog-card-title-link"><h4>{product.public_name || product.name}</h4></Link>
@@ -571,17 +633,11 @@ export default function CataloguePage() {
                   </div>
                   <div className="catalog-product-row-side">
                     <div className="catalog-product-row-availability">
-                      {product.ui.stockManaged ? (
-                        <>
-                          <Badge tone={product.ui.tone} label={product.ui.label} />
-                          <p className={`catalog-stock-caption tone-${product.ui.tone}`.trim()}>{product.ui.hint}</p>
-                        </>
-                      ) : (
-                        <>
-                          <Badge tone={product.ui.tone} label={product.ui.label} />
-                          <ToggleSwitch checked={Boolean(product.isActive)} compact disabled={isBusy} label={product.isActive ? "Disponible" : "Indisponible"} onChange={(nextValue) => void handleProductToggle(product, nextValue)} />
-                        </>
-                      )}
+                      <div className="catalog-card-toggle-cluster">
+                        <span className="catalog-toggle-caption">Statut</span>
+                        <ToggleSwitch checked={Boolean(product.isActive)} compact disabled={isBusy} label={product.ui.statusLabel} onChange={(nextValue) => void handleProductToggle(product, nextValue)} />
+                      </div>
+                      <p className={`catalog-stock-caption tone-${product.ui.rowTone}`.trim()}>{product.ui.hint}</p>
                     </div>
                     <div className="row-actions catalog-product-row-actions">
                         <ActionMenu triggerClassName="action-button catalog-menu-trigger" triggerLabel={<Icon name="dots" size={16} />} triggerTitle={`Actions rapides produit ${product.public_name || product.name}`} items={[{ id: `edit-product-${product.id}`, label: "Modifier", href: `/catalogue/produits/nouveau?product=${product.id}&mode=edit` }, { id: `duplicate-product-${product.id}`, label: "Dupliquer", onClick: () => void handleDuplicateProduct(product.id), disabled: isBusy }]} />
