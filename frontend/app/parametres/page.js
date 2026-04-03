@@ -1553,29 +1553,27 @@ function SettingsPageContent() {
                   </div>
 
                   {storefrontHeroImageItems.length ? (
-                    <div className="thumbnail-grid catalog-gallery-grid">
+                    <div className="storefront-hero-thumb-grid" aria-label="Miniatures du bloc photo">
                       {storefrontHeroImageItems.map((photoItem, index) => (
-                        <div key={photoItem.key} className="thumbnail-card">
-                          <div className="thumbnail-media">
+                        <article key={photoItem.key} className="storefront-hero-thumb-card">
+                          <div className="storefront-hero-thumb-media">
                             <img
                               src={photoItem.url}
                               alt={`Bloc photo boutique ${index + 1}`}
                             />
                           </div>
-                          <div className="stack">
-                            <strong>{`Image ${index + 1}`}</strong>
-                            <span className="muted-text">
+                          <div className="storefront-hero-thumb-body">
+                            <div className="storefront-hero-thumb-row">
+                              <strong>{`Image ${index + 1}`}</strong>
+                              <span className="storefront-hero-thumb-order">{index + 1}</span>
+                            </div>
+                            <span className="muted-text storefront-hero-thumb-status">
                               {photoItem.kind === "pending"
-                                ? `${photoItem.photo.width} x ${photoItem.photo.height} px - ${formatImageUploadSize(photoItem.photo.sizeBytes)}`
-                                : "Image deja enregistree"}
-                            </span>
-                            <span className="muted-text">
-                              {photoItem.kind === "pending"
-                                ? "Sera envoyee a l'enregistrement"
-                                : "Visible dans le bloc public apres sauvegarde"}
+                                ? `En attente - ${formatImageUploadSize(photoItem.photo.sizeBytes)}`
+                                : "Enregistree"}
                             </span>
                           </div>
-                          <div className="row-actions thumbnail-actions">
+                          <div className="storefront-hero-thumb-actions">
                             <button
                               type="button"
                               className="button subtle"
@@ -1584,7 +1582,7 @@ function SettingsPageContent() {
                               Supprimer
                             </button>
                           </div>
-                        </div>
+                        </article>
                       ))}
                     </div>
                   ) : (
