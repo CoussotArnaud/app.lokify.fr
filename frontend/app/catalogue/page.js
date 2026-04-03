@@ -16,6 +16,7 @@ import { formatCurrency } from "../../lib/date";
 import { consumeFlashMessage } from "../../lib/flash-message";
 import { buildStorefrontUrl } from "../../lib/storefront";
 
+const ALL_PRODUCTS_CATEGORY_ID = "__all_products__";
 const UNCATEGORIZED_CATEGORY_ID = "__uncategorized__";
 const filters = [
   { id: "all", label: "Tout" },
@@ -142,6 +143,12 @@ const getProductMeta = (product) => {
   return { stockManaged: true, tone: "success", label: `Disponible ${ratio}`, filterKey: "available", stockLabel: ratio, hint: "Stock complet." };
 };
 
+const matchesSelectedCategory = (product, selectedCategoryRecord) => {
+  if (!selectedCategoryRecord || selectedCategoryRecord.isAllProducts) return true;
+  if (selectedCategoryRecord.isUncategorized) return !String(product.categorySlug || "").trim();
+  return String(product.categorySlug || "").trim() === selectedCategoryRecord.id;
+};
+
 function ActionMenu({ triggerClassName, triggerLabel, triggerTitle, items }) {
   if (!items.length) return null;
   return (
@@ -179,7 +186,7 @@ function Badge({ tone, label }) {
 
 export default function CataloguePage() {
   const workspace = useLokifyWorkspace();
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState(ALL_PRODUCTS_CATEGORY_ID);
   const [search, setSearch] = useState("");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
   const [feedback, setFeedback] = useState("");
@@ -207,8 +214,8 @@ export default function CataloguePage() {
 
   const categoryRows = useMemo(() => buildCategoryRows(workspace.categories, workspace.products), [workspace.categories, workspace.products]);
   useEffect(() => {
-    if (!categoryRows.length) return void setSelectedCategory("");
-    if (!categoryRows.some((category) => category.id === selectedCategory)) setSelectedCategory(categoryRows[0].id);
+    if (selectedCategory === ALL_PRODUCTS_CATEGORY_ID) return;
+    if (!categoryRows.some((category) => category.id === selectedCategory)) setSelectedCategory(ALL_PRODUCTS_CATEGORY_ID);
   }, [categoryRows, selectedCategory]);
 
   useEffect(() => {
@@ -225,27 +232,37 @@ export default function CataloguePage() {
     return () => { cancelled = true; };
   }, []);
 
-  const selectedCategoryRecord = categoryRows.find((category) => category.id === selectedCategory) || null;
+  const totalProductCount = workspace.products.length;
+  const totalProductCountLabel = formatCountLabel(totalProductCount, "produit");
+  const selectedCategoryRecord = useMemo(() => {
+    if (selectedCategory === ALL_PRODUCTS_CATEGORY_ID) {
+      return {
+        id: ALL_PRODUCTS_CATEGORY_ID,
+        label: "Tous les produits",
+        productCount: totalProductCount,
+        isAllProducts: true,
+        isUncategorized: false,
+        logoUrl: "",
+      };
+    }
+    return categoryRows.find((category) => category.id === selectedCategory) || null;
+  }, [categoryRows, selectedCategory, totalProductCount]);
 
   const packCards = useMemo(() => workspace.packs.filter((pack) => !deferredSearch || searchable([pack.name, pack.description]).includes(deferredSearch)).map((pack) => ({ ...pack, ui: getPackMeta(pack) })).filter((pack) => matchesFilter(availabilityFilter, pack.ui.filterKey)).sort((left, right) => sortByLabel(left.name, right.name)), [availabilityFilter, deferredSearch, workspace.packs]);
-
-  const productCards = useMemo(() => {
-    if (!selectedCategoryRecord) return [];
-    return workspace.products
-      .filter((product) => selectedCategoryRecord.isUncategorized ? !String(product.categorySlug || "").trim() : String(product.categorySlug || "").trim() === selectedCategoryRecord.id)
-      .filter((product) => !deferredSearch || searchable([product.public_name, product.name, product.category || "Sans categorie", product.sku, product.public_description]).includes(deferredSearch))
-      .map((product) => ({ ...product, ui: getProductMeta(product) }))
-      .filter((product) => matchesFilter(availabilityFilter, product.ui.filterKey))
-      .sort((left, right) => sortByLabel(left.public_name || left.name, right.public_name || right.name));
-  }, [availabilityFilter, deferredSearch, selectedCategoryRecord, workspace.products]);
 
   const baseProductCards = useMemo(() => {
     if (!selectedCategoryRecord) return [];
     return workspace.products
-      .filter((product) => selectedCategoryRecord.isUncategorized ? !String(product.categorySlug || "").trim() : String(product.categorySlug || "").trim() === selectedCategoryRecord.id)
+      .filter((product) => matchesSelectedCategory(product, selectedCategoryRecord))
       .filter((product) => !deferredSearch || searchable([product.public_name, product.name, product.category || "Sans categorie", product.sku, product.public_description]).includes(deferredSearch))
       .map((product) => ({ ...product, ui: getProductMeta(product) }));
   }, [deferredSearch, selectedCategoryRecord, workspace.products]);
+
+  const productCards = useMemo(() => (
+    baseProductCards
+      .filter((product) => matchesFilter(availabilityFilter, product.ui.filterKey))
+      .sort((left, right) => sortByLabel(left.public_name || left.name, right.public_name || right.name))
+  ), [availabilityFilter, baseProductCards]);
 
   const filterCounts = useMemo(() => {
     const counts = { all: 0, available: 0, unavailable: 0, out_of_stock: 0 };
@@ -258,13 +275,30 @@ export default function CataloguePage() {
   const productCountLabel = formatCountLabel(productCards.length, "produit");
   const hasSearchOrFilter = Boolean(deferredSearch) || availabilityFilter !== "all";
   const activeCategorySummary = selectedCategoryRecord
-    ? productCards.length
-      ? `${productCountLabel} dans cette cat\u00e9gorie`
-      : "Aucun produit dans cette cat\u00e9gorie"
-    : "Aucune cat\u00e9gorie s\u00e9lectionn\u00e9e";
+    ? selectedCategoryRecord.isAllProducts
+      ? productCards.length
+        ? hasSearchOrFilter
+          ? `${productCountLabel} visibles sur ${totalProductCountLabel} du catalogue`
+          : `${totalProductCountLabel} dans la liste complete`
+        : totalProductCount
+          ? "Aucun produit ne correspond a ce filtre."
+          : "Aucun produit dans le catalogue"
+      : productCards.length
+        ? hasSearchOrFilter
+          ? `${productCountLabel} visibles sur ${formatCountLabel(selectedCategoryRecord.productCount, "produit")} dans cette categorie`
+          : `${formatCountLabel(selectedCategoryRecord.productCount, "produit")} dans cette categorie`
+        : selectedCategoryRecord.productCount
+          ? "Aucun produit ne correspond a ce filtre dans cette categorie."
+          : "Aucun produit dans cette categorie"
+    : "Aucune categorie selectionnee";
+  const productsSummaryCaption = selectedCategoryRecord?.isAllProducts && !hasSearchOrFilter
+    ? "Liste complete du catalogue."
+    : productCards.length
+      ? "Visible dans la vue courante."
+      : "Aucun produit pour ce filtre.";
   const manualProducts = productCards.filter((product) => !product.ui.stockManaged);
   const isBusy = workspace.loading || workspace.mutating || isBatching;
-  const selectedCategoryHref = selectedCategoryRecord && !selectedCategoryRecord.isUncategorized ? `/catalogue/produits/nouveau?category=${encodeURIComponent(selectedCategoryRecord.id)}` : "/catalogue/produits/nouveau";
+  const selectedCategoryHref = selectedCategoryRecord && !selectedCategoryRecord.isUncategorized && !selectedCategoryRecord.isAllProducts ? `/catalogue/produits/nouveau?category=${encodeURIComponent(selectedCategoryRecord.id)}` : "/catalogue/produits/nouveau";
   const resetMessages = () => { setError(""); setFeedback(""); };
 
   const runBatchMutation = async (callback, successMessage) => {
@@ -377,7 +411,7 @@ export default function CataloguePage() {
           <div className="catalog-header-copy">
             <p className="eyebrow">Catalogue</p>
             <h3>{"G\u00e9rez vos produits, packs et disponibilit\u00e9s"}</h3>
-            <p>{"Retrouvez rapidement les packs, les cat\u00e9gories actives et les produits visibles dans la vue en cours."}</p>
+            <p>{"Retrouvez rapidement les packs, les cat\u00e9gories comme filtres rapides et la liste compl\u00e8te des produits."}</p>
           </div>
           <div className="page-header-actions catalog-actions">
             <button type="button" className="button ghost" onClick={() => { setFeedback("Le bouton Scanner est conserve, mais le module n'est pas encore raccorde."); setError(""); }}>Scanner</button>
@@ -409,9 +443,9 @@ export default function CataloguePage() {
                 <small>{activeCategorySummary}</small>
               </article>
               <article className={`catalog-summary-card ${productCards.length ? "is-accent" : ""}`.trim()}>
-                <span>{"Produits filtr\u00e9s"}</span>
+                <span>{"Produits visibles"}</span>
                 <strong>{productCountLabel}</strong>
-                <small>{productCards.length ? "Visible dans la vue courante." : "Aucun produit pour ce filtre."}</small>
+                <small>{productsSummaryCaption}</small>
               </article>
             </div>
           </div>
@@ -467,8 +501,12 @@ export default function CataloguePage() {
           )}
         </Panel>
 
-        <Panel title={"Cat\u00e9gories et produits"} description={"Acc\u00e8s rapide aux cat\u00e9gories et aux produits de la vue courante."} className={`catalog-products-panel ${productCards.length ? "has-products" : ""}`.trim()} actions={<div className="toolbar-group">{selectedCategoryRecord ? <StatusPill tone={productCards.length ? "success" : "neutral"}>{`${selectedCategoryRecord.label} - ${productCountLabel}`}</StatusPill> : null}<Link href={selectedCategoryHref} className="button primary">Ajouter produit</Link></div>}>
+        <Panel title={"Cat\u00e9gories et produits"} description={"Les cat\u00e9gories restent des filtres rapides, avec une vue globale claire de tous les produits juste en dessous."} className={`catalog-products-panel ${productCards.length ? "has-products" : ""}`.trim()} actions={<div className="toolbar-group">{selectedCategoryRecord ? <StatusPill tone={productCards.length ? "success" : "neutral"}>{`${selectedCategoryRecord.label} - ${productCountLabel}`}</StatusPill> : null}<Link href={selectedCategoryHref} className="button primary">Ajouter produit</Link></div>}>
           <div className="catalog-category-tabs" role="tablist" aria-label={"Cat\u00e9gories du catalogue"}>
+            <button type="button" className={`catalog-category-tab ${selectedCategory === ALL_PRODUCTS_CATEGORY_ID ? "active" : ""}`.trim()} onClick={() => setSelectedCategory(ALL_PRODUCTS_CATEGORY_ID)} aria-pressed={selectedCategory === ALL_PRODUCTS_CATEGORY_ID}>
+              <span className="catalog-category-tab-copy"><span>Tous les produits</span></span>
+              <strong>{totalProductCount}</strong>
+            </button>
             {categoryRows.map((category) => <button key={category.id} type="button" className={`catalog-category-tab ${selectedCategory === category.id ? "active" : ""}`.trim()} onClick={() => setSelectedCategory(category.id)} aria-pressed={selectedCategory === category.id}><span className="catalog-category-tab-copy">{category.logoUrl ? <img src={category.logoUrl} alt="" className="catalog-category-tab-logo" /> : null}<span>{category.label}</span></span><strong>{category.productCount}</strong></button>)}
           </div>
           {selectedCategoryRecord ? (
