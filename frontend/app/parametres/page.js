@@ -51,6 +51,7 @@ const initialStorefrontForm = {
 };
 
 const MAX_STOREFRONT_HERO_IMAGES = 5;
+const allowedStorefrontHeroPendingStatuses = new Set(["ready", "uploading", "error"]);
 
 const initialAccountForm = {
   full_name: "",
@@ -156,19 +157,50 @@ const providerSettingSections = [
   },
 ];
 
+const normalizePendingStorefrontHeroImage = (photo) => ({
+  ...photo,
+  uploadStatus: allowedStorefrontHeroPendingStatuses.has(
+    String(photo?.uploadStatus || "").trim().toLowerCase()
+  )
+    ? String(photo.uploadStatus).trim().toLowerCase()
+    : "ready",
+  errorMessage: String(photo?.errorMessage || "").trim(),
+});
+
 const buildStorefrontHeroImageItems = (existingImages = [], pendingImages = []) => [
   ...existingImages.map((url) => ({
     key: `existing:${url}`,
     kind: "existing",
     url,
   })),
-  ...pendingImages.map((photo) => ({
-    key: `pending:${photo.id}`,
-    kind: "pending",
-    photo,
-    url: photo.previewUrl,
-  })),
+  ...pendingImages.map((photo) => {
+    const normalizedPhoto = normalizePendingStorefrontHeroImage(photo);
+    return {
+      key: `pending:${normalizedPhoto.id}`,
+      kind: "pending",
+      photo: normalizedPhoto,
+      url: normalizedPhoto.previewUrl,
+    };
+  }),
 ];
+
+const buildStorefrontHeroImageStatusLabel = (photoItem) => {
+  if (photoItem.kind !== "pending") {
+    return "Enregistree";
+  }
+
+  const sizeLabel = formatImageUploadSize(photoItem.photo.sizeBytes);
+
+  if (photoItem.photo.uploadStatus === "uploading") {
+    return `Envoi en cours - ${sizeLabel}`;
+  }
+
+  if (photoItem.photo.uploadStatus === "error") {
+    return "Erreur - reessayez l'enregistrement";
+  }
+
+  return `Prete a enregistrer - ${sizeLabel}`;
+};
 
 const splitStorefrontHeroImageItems = (items = []) => ({
   heroImages: items
@@ -207,6 +239,14 @@ const buildStorefrontHeroImageErrorMessage = (submissionError) => {
 
   if (submissionError.code === "network_error") {
     return "L'image n'a pas pu etre envoyee. Verifiez la connexion puis reessayez.";
+  }
+
+  if (submissionError.code === "catalog_image_processing_failed") {
+    return "L'image a bien ete recue mais n'a pas pu etre finalisee. Essayez avec un JPG, PNG ou WebP standard.";
+  }
+
+  if (submissionError.code === "storefront_image_persist_failed") {
+    return "Les images du bloc photo n'ont pas pu etre confirmees apres l'enregistrement. Reessayez pour forcer la sauvegarde finale.";
   }
 
   return submissionError.message || "L'image n'a pas pu etre envoyee.";
@@ -625,6 +665,35 @@ function SettingsPageContent() {
     );
   };
 
+  const updatePendingStorefrontHeroImageStatuses = (
+    photoIds = [],
+    uploadStatus = "ready",
+    errorMessage = ""
+  ) => {
+    const targetIds = new Set((Array.isArray(photoIds) ? photoIds : [photoIds]).filter(Boolean));
+
+    if (!targetIds.size) {
+      return;
+    }
+
+    updateStorefrontHeroImageCollections((currentItems) =>
+      currentItems.map((entry) => {
+        if (entry.kind !== "pending" || !targetIds.has(entry.photo.id)) {
+          return entry;
+        }
+
+        return {
+          ...entry,
+          photo: normalizePendingStorefrontHeroImage({
+            ...entry.photo,
+            uploadStatus,
+            errorMessage: uploadStatus === "error" ? errorMessage : "",
+          }),
+        };
+      })
+    );
+  };
+
   const addStorefrontHeroImages = async (files) => {
     const selectedFiles = Array.from(files || []);
 
@@ -656,7 +725,13 @@ function SettingsPageContent() {
               maxSizeBytes: MAX_IMAGE_UPLOAD_SIZE_BYTES,
               includeDataUrl: true,
             });
-            preparedPhotos.push(preparedPhoto);
+            preparedPhotos.push(
+              normalizePendingStorefrontHeroImage({
+                ...preparedPhoto,
+                uploadStatus: "ready",
+                errorMessage: "",
+              })
+            );
           } catch (submissionError) {
             messages.push(buildStorefrontHeroImageErrorMessage(submissionError));
           }
@@ -715,32 +790,51 @@ function SettingsPageContent() {
     );
     const uploadedHeroImages = [];
     const expectedHeroImageCount = currentStorefrontHeroImageItems.length;
+    const pendingPhotoIds = currentPendingStorefrontHeroImages.map((photo) => photo.id);
 
     try {
+      updatePendingStorefrontHeroImageStatuses(pendingPhotoIds, "uploading");
+
       for (const pendingPhoto of currentPendingStorefrontHeroImages) {
         const uploadedPhoto = await uploadStorefrontHeroImage(pendingPhoto);
         uploadedHeroImages.push(uploadedPhoto);
       }
 
+      const savePayload = {
+        ...currentStorefrontForm,
+        hero_image_uploads: uploadedHeroImages,
+        hero_image_sequence: currentStorefrontHeroImageItems.map(
+          buildStorefrontHeroImageSequenceEntry
+        ),
+      };
       const response = await apiRequest("/storefront/settings", {
         method: "PUT",
-        body: {
-          ...currentStorefrontForm,
-          hero_image_uploads: uploadedHeroImages,
-          hero_image_sequence: currentStorefrontHeroImageItems.map(
-            buildStorefrontHeroImageSequenceEntry
-          ),
-        },
+        body: savePayload,
       });
       const persistedResponse = await apiRequest("/storefront/settings");
       const persistedStorefrontSettings =
         persistedResponse.storefrontSettings || response.storefrontSettings;
+      const responseHeroImages = normalizeStorefrontHeroImageUrls(response.storefrontSettings);
       const persistedHeroImages = normalizeStorefrontHeroImageUrls(persistedStorefrontSettings);
+      const retainedHeroImageSet = new Set(currentStorefrontForm.hero_images);
+      const persistedNewHeroImages = persistedHeroImages.filter(
+        (imageUrl) => !retainedHeroImageSet.has(imageUrl)
+      );
+      const responseMatchesPersisted =
+        responseHeroImages.length === persistedHeroImages.length &&
+        responseHeroImages.every((imageUrl, index) => imageUrl === persistedHeroImages[index]);
+      const persistedIncludesRetainedImages = currentStorefrontForm.hero_images.every((imageUrl) =>
+        persistedHeroImages.includes(imageUrl)
+      );
+      const persistedIncludesUploadedImages =
+        currentPendingStorefrontHeroImages.length === 0 ||
+        persistedNewHeroImages.length >= currentPendingStorefrontHeroImages.length;
 
       if (
-        currentPendingStorefrontHeroImages.length > 0 &&
-        expectedHeroImageCount > 0 &&
-        persistedHeroImages.length < expectedHeroImageCount
+        persistedHeroImages.length !== expectedHeroImageCount ||
+        !responseMatchesPersisted ||
+        !persistedIncludesRetainedImages ||
+        !persistedIncludesUploadedImages
       ) {
         const verificationError = new Error(
           "Les images du bloc photo n'ont pas pu etre confirmees apres l'enregistrement."
@@ -767,6 +861,11 @@ function SettingsPageContent() {
         message: "Les reglages de la boutique en ligne ont ete enregistres.",
       });
     } catch (error) {
+      updatePendingStorefrontHeroImageStatuses(
+        pendingPhotoIds,
+        "error",
+        buildStorefrontHeroImageErrorMessage(error)
+      );
       await Promise.allSettled(
         uploadedHeroImages.map((upload) =>
           deleteStorefrontTemporaryHeroImage(upload?.temp_object_key || upload?.tempObjectKey)
@@ -1641,10 +1740,17 @@ function SettingsPageContent() {
                               <strong>{`Image ${index + 1}`}</strong>
                               <span className="storefront-hero-thumb-order">{index + 1}</span>
                             </div>
-                            <span className="muted-text storefront-hero-thumb-status">
-                              {photoItem.kind === "pending"
-                                ? `En attente - ${formatImageUploadSize(photoItem.photo.sizeBytes)}`
-                                : "Enregistree"}
+                            <span
+                              className="muted-text storefront-hero-thumb-status"
+                              title={
+                                photoItem.kind === "pending" &&
+                                photoItem.photo.uploadStatus === "error"
+                                  ? photoItem.photo.errorMessage ||
+                                    "L'image n'a pas pu etre enregistree."
+                                  : undefined
+                              }
+                            >
+                              {buildStorefrontHeroImageStatusLabel(photoItem)}
                             </span>
                           </div>
                           <div className="storefront-hero-thumb-actions">
