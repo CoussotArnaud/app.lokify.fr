@@ -80,7 +80,8 @@ export function StorefrontHero({
   storefrontName,
   storefrontLiveStatus,
   providerLocation,
-  heroImage,
+  heroImages = [],
+  activeHeroImageIndex = 0,
   bookingForm,
   onBookingFieldChange,
   paymentSummary,
@@ -92,6 +93,8 @@ export function StorefrontHero({
     providerLocation && providerLocation.trim() && providerLocation !== "Boutique publique";
   const heroLocationLabel = hasMeaningfulLocation ? providerLocation : "Service sur reservation";
   const heroMediaCaption = hasMeaningfulLocation ? providerLocation : storefrontName;
+  const normalizedHeroImages = Array.isArray(heroImages) ? heroImages.filter(Boolean) : [];
+  const hasHeroSlider = normalizedHeroImages.length > 1;
   const handleReservationCta = () => {
     revealCatalog("all");
     scrollToSection("storefront-catalogue");
@@ -204,8 +207,28 @@ export function StorefrontHero({
       </div>
 
       <div className="public-shop-v6-hero-media">
-        {heroImage ? (
-          <img src={heroImage} alt={storefrontName} className="public-shop-v6-hero-image" />
+        {normalizedHeroImages.length ? (
+          hasHeroSlider ? (
+            <div className="public-shop-v6-hero-slider" aria-live="polite">
+              {normalizedHeroImages.map((heroImage, index) => (
+                <img
+                  key={`${heroImage}-${index}`}
+                  src={heroImage}
+                  alt={storefrontName}
+                  className={`public-shop-v6-hero-image public-shop-v6-hero-slide ${
+                    index === activeHeroImageIndex ? "is-active" : ""
+                  }`.trim()}
+                  aria-hidden={index === activeHeroImageIndex ? "false" : "true"}
+                />
+              ))}
+            </div>
+          ) : (
+            <img
+              src={normalizedHeroImages[0]}
+              alt={storefrontName}
+              className="public-shop-v6-hero-image"
+            />
+          )
         ) : (
           <div className="public-shop-v6-hero-placeholder" aria-hidden="true">
             <div>

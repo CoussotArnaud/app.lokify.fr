@@ -1,14 +1,18 @@
 import asyncHandler from "../utils/async-handler.js";
 import {
+  cancelStorefrontHeroImageUpload,
   createPublicStorefrontCheckoutSession,
   createStorefrontCheckoutSession,
+  finalizeStorefrontHeroImageUpload,
   finalizePublicStorefrontCheckoutSession,
   finalizeStorefrontCheckoutSession,
   getPublicStorefrontPreview,
   getStorefrontSettings,
   getStorefrontPreview,
+  startStorefrontHeroImageUpload,
   submitPublicStorefrontRequest,
   submitStorefrontRequest,
+  uploadStorefrontHeroImageChunk,
   updateStorefrontSettings,
 } from "../services/storefront.service.js";
 
@@ -40,6 +44,26 @@ export const getProviderStorefrontSettings = asyncHandler(async (req, res) => {
 export const putProviderStorefrontSettings = asyncHandler(async (req, res) => {
   const storefrontSettings = await updateStorefrontSettings(req.user.id, req.body);
   res.json({ storefrontSettings });
+});
+
+export const postProviderStorefrontHeroImageUpload = asyncHandler(async (req, res) => {
+  const upload = await startStorefrontHeroImageUpload(req.user.id, req.body);
+  res.status(201).json({ upload });
+});
+
+export const postProviderStorefrontHeroImageUploadPart = asyncHandler(async (req, res) => {
+  const part = await uploadStorefrontHeroImageChunk(req.user.id, req.params.uploadId, req.body);
+  res.status(201).json({ part });
+});
+
+export const postProviderStorefrontHeroImageUploadComplete = asyncHandler(async (req, res) => {
+  const upload = await finalizeStorefrontHeroImageUpload(req.user.id, req.params.uploadId, req.body);
+  res.status(201).json({ upload });
+});
+
+export const deleteProviderStorefrontHeroImageUpload = asyncHandler(async (req, res) => {
+  await cancelStorefrontHeroImageUpload(req.user.id, req.body);
+  res.status(204).end();
 });
 
 export const getPublicStorefront = asyncHandler(async (req, res) => {

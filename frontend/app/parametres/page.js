@@ -11,8 +11,17 @@ import StatusPill from "../../components/status-pill";
 import { useAuth } from "../../components/auth-provider";
 import { apiRequest } from "../../lib/api";
 import { getWorkspaceUserLabel, isSuperAdmin } from "../../lib/access";
+import {
+  MAX_IMAGE_UPLOAD_SIZE_BYTES,
+  formatImageUploadSize,
+  prepareImageUpload,
+} from "../../lib/image-upload";
 import { defaultReservationStatuses } from "../../lib/lokify-data";
 import { buildStorefrontPath, buildStorefrontUrl } from "../../lib/storefront";
+import {
+  deleteStorefrontTemporaryHeroImage,
+  uploadStorefrontHeroImage,
+} from "../../lib/storefront-hero-upload";
 
 const initialPlatformForm = {
   publishableKey: "",
@@ -37,7 +46,10 @@ const initialStorefrontForm = {
   map_address: "",
   reviews_enabled: false,
   reviews_url: "",
+  hero_images: [],
 };
+
+const MAX_STOREFRONT_HERO_IMAGES = 5;
 
 const initialAccountForm = {
   full_name: "",
@@ -143,6 +155,68 @@ const providerSettingSections = [
   },
 ];
 
+const normalizeStorefrontHeroImageUrls = (settings) =>
+  (Array.isArray(settings?.hero_images) ? settings.hero_images : [])
+    .map((entry) => (entry && typeof entry === "object" ? entry.url : entry))
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+
+const buildStorefrontHeroImageItems = (existingImages = [], pendingImages = []) => [
+  ...existingImages.map((url) => ({
+    key: `existing:${url}`,
+    kind: "existing",
+    url,
+  })),
+  ...pendingImages.map((photo) => ({
+    key: `pending:${photo.id}`,
+    kind: "pending",
+    photo,
+    url: photo.previewUrl,
+  })),
+];
+
+const splitStorefrontHeroImageItems = (items = []) => ({
+  heroImages: items
+    .filter((entry) => entry.kind === "existing")
+    .map((entry) => entry.url),
+  pendingImages: items
+    .filter((entry) => entry.kind === "pending")
+    .map((entry) => entry.photo),
+});
+
+const buildStorefrontHeroImageSequenceEntry = (entry) =>
+  entry.kind === "existing" ? entry.url : `upload:${entry.photo.id}`;
+
+const buildStorefrontHeroImageErrorMessage = (submissionError) => {
+  if (!submissionError) {
+    return "L'image n'a pas pu etre envoyee.";
+  }
+
+  if (
+    submissionError.code === "catalog_image_too_large" ||
+    submissionError.code === "request_entity_too_large" ||
+    submissionError.statusCode === 413
+  ) {
+    return `Le fichier est trop volumineux. Taille maximale autorisee : ${Math.round(
+      MAX_IMAGE_UPLOAD_SIZE_BYTES / (1024 * 1024)
+    )} Mo.`;
+  }
+
+  if (submissionError.code === "storefront_image_limit") {
+    return `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`;
+  }
+
+  if (submissionError.code === "catalog_image_type") {
+    return "Format non pris en charge. Utilisez une image JPG, PNG ou WebP.";
+  }
+
+  if (submissionError.code === "network_error") {
+    return "L'image n'a pas pu etre envoyee. Verifiez la connexion puis reessayez.";
+  }
+
+  return submissionError.message || "L'image n'a pas pu etre envoyee.";
+};
+
 const SettingsPageFallback = () => (
   <AppShell>
     <div className="page-stack">
@@ -172,6 +246,7 @@ function SettingsPageContent() {
   const [platformForm, setPlatformForm] = useState(initialPlatformForm);
   const [providerForm, setProviderForm] = useState(initialProviderForm);
   const [storefrontForm, setStorefrontForm] = useState(initialStorefrontForm);
+  const [pendingStorefrontHeroImages, setPendingStorefrontHeroImages] = useState([]);
   const [localPreferences, setLocalPreferences] = useState(initialLocalPreferences);
   const [reservationStatuses, setReservationStatuses] = useState(defaultReservationStatuses);
   const [savingStatuses, setSavingStatuses] = useState(false);
@@ -212,7 +287,9 @@ function SettingsPageContent() {
           map_address: storefrontResponse.storefrontSettings?.map_address || "",
           reviews_enabled: Boolean(storefrontResponse.storefrontSettings?.reviews_enabled),
           reviews_url: storefrontResponse.storefrontSettings?.reviews_url || "",
+          hero_images: normalizeStorefrontHeroImageUrls(storefrontResponse.storefrontSettings),
         });
+        setPendingStorefrontHeroImages([]);
       }
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
@@ -500,15 +577,107 @@ function SettingsPageContent() {
     }
   };
 
+  const storefrontHeroImageItems = buildStorefrontHeroImageItems(
+    storefrontForm.hero_images,
+    pendingStorefrontHeroImages
+  );
+
+  const updateStorefrontHeroImageCollections = (updater) => {
+    const nextItems = updater(
+      buildStorefrontHeroImageItems(storefrontForm.hero_images, pendingStorefrontHeroImages)
+    );
+    const nextCollections = splitStorefrontHeroImageItems(nextItems);
+    setStorefrontForm((current) => ({
+      ...current,
+      hero_images: nextCollections.heroImages,
+    }));
+    setPendingStorefrontHeroImages(nextCollections.pendingImages);
+  };
+
+  const removeStorefrontHeroImageItem = (itemKey) => {
+    updateStorefrontHeroImageCollections((currentItems) =>
+      currentItems.filter((entry) => entry.key !== itemKey)
+    );
+  };
+
+  const addStorefrontHeroImages = async (files) => {
+    const selectedFiles = Array.from(files || []);
+    const remainingSlots =
+      MAX_STOREFRONT_HERO_IMAGES - (storefrontForm.hero_images.length + pendingStorefrontHeroImages.length);
+
+    if (!selectedFiles.length) {
+      return;
+    }
+
+    if (remainingSlots <= 0) {
+      setFeedback({
+        type: "error",
+        message: `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`,
+      });
+      return;
+    }
+
+    const preparedPhotos = [];
+    const messages = [];
+
+    for (const file of selectedFiles.slice(0, remainingSlots)) {
+      try {
+        const preparedPhoto = await prepareImageUpload(file, {
+          maxSizeBytes: MAX_IMAGE_UPLOAD_SIZE_BYTES,
+          includeDataUrl: true,
+        });
+        preparedPhotos.push(preparedPhoto);
+      } catch (submissionError) {
+        messages.push(buildStorefrontHeroImageErrorMessage(submissionError));
+      }
+    }
+
+    if (selectedFiles.length > remainingSlots) {
+      messages.push(
+        `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`
+      );
+    }
+
+    if (preparedPhotos.length) {
+      updateStorefrontHeroImageCollections((currentItems) => [
+        ...currentItems,
+        ...buildStorefrontHeroImageItems([], preparedPhotos),
+      ]);
+      setFeedback({
+        type: messages.length ? "error" : "success",
+        message: messages[0] || `${preparedPhotos.length} image(s) prete(s) a etre enregistree(s).`,
+      });
+      return;
+    }
+
+    if (messages.length) {
+      setFeedback({
+        type: "error",
+        message: messages[0],
+      });
+    }
+  };
+
   const handleStorefrontSave = async (event) => {
     event.preventDefault();
     setSavingStorefront(true);
     setFeedback(null);
 
+    const uploadedHeroImages = [];
+
     try {
+      for (const pendingPhoto of pendingStorefrontHeroImages) {
+        const uploadedPhoto = await uploadStorefrontHeroImage(pendingPhoto);
+        uploadedHeroImages.push(uploadedPhoto);
+      }
+
       const response = await apiRequest("/storefront/settings", {
         method: "PUT",
-        body: storefrontForm,
+        body: {
+          ...storefrontForm,
+          hero_image_uploads: uploadedHeroImages,
+          hero_image_sequence: storefrontHeroImageItems.map(buildStorefrontHeroImageSequenceEntry),
+        },
       });
 
       setStorefrontSettings(response.storefrontSettings);
@@ -521,13 +690,23 @@ function SettingsPageContent() {
         map_address: response.storefrontSettings?.map_address || "",
         reviews_enabled: Boolean(response.storefrontSettings?.reviews_enabled),
         reviews_url: response.storefrontSettings?.reviews_url || "",
+        hero_images: normalizeStorefrontHeroImageUrls(response.storefrontSettings),
       });
+      setPendingStorefrontHeroImages([]);
       setFeedback({
         type: "success",
         message: "Les reglages de la boutique en ligne ont ete enregistres.",
       });
     } catch (error) {
-      setFeedback({ type: "error", message: error.message });
+      await Promise.allSettled(
+        uploadedHeroImages.map((upload) =>
+          deleteStorefrontTemporaryHeroImage(upload?.temp_object_key || upload?.tempObjectKey)
+        )
+      );
+      setFeedback({
+        type: "error",
+        message: buildStorefrontHeroImageErrorMessage(error),
+      });
     } finally {
       setSavingStorefront(false);
     }
@@ -592,6 +771,7 @@ function SettingsPageContent() {
   const stripeConnection = paymentSettings?.stripe || null;
   const onlinePayment = paymentSettings?.onlinePayment || null;
   const paymentOverview = paymentSettings?.overview || null;
+  const storefrontHeroImageCount = storefrontHeroImageItems.length;
 
   return (
     <AppShell>
@@ -1191,6 +1371,14 @@ function SettingsPageContent() {
                       : "Masques"}
                   </span>
                 </article>
+                <article className="detail-card">
+                  <strong>Bloc photo</strong>
+                  <span className="muted-text">
+                    {storefrontHeroImageCount
+                      ? `${storefrontHeroImageCount} image(s) sur ${MAX_STOREFRONT_HERO_IMAGES}`
+                      : "Fallback actuel conserve"}
+                  </span>
+                </article>
               </div>
 
               <form className="form-grid" onSubmit={handleStorefrontSave}>
@@ -1312,9 +1500,111 @@ function SettingsPageContent() {
                   </p>
                 </div>
 
+                <div className="section-block">
+                  <div className="section-block-header">
+                    <div>
+                      <h4>Bloc photo public</h4>
+                      <p>
+                        Ajoutez jusqu&apos;a {MAX_STOREFRONT_HERO_IMAGES} images pour piloter le visuel
+                        du hero public sans modifier sa mise en page.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="button ghost" htmlFor="storefront-hero-images">
+                    Ajouter des photos
+                  </label>
+                  <input
+                    id="storefront-hero-images"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                      void addStorefrontHeroImages(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+
+                  <p className="field-hint">
+                    JPG, PNG ou WebP. Taille maximale par fichier:{" "}
+                    {Math.round(MAX_IMAGE_UPLOAD_SIZE_BYTES / (1024 * 1024))} Mo. Les images sont
+                    optimisees automatiquement apres l&apos;envoi.
+                  </p>
+
+                  <div className="editor-section-grid two-columns">
+                    <div className="detail-card catalog-media-summary-card">
+                      <strong>Images enregistrees</strong>
+                      <span className="muted-text">
+                        {storefrontHeroImageCount
+                          ? `${storefrontHeroImageCount} image(s) preparee(s) ou conservee(s) sur ${MAX_STOREFRONT_HERO_IMAGES}`
+                          : "Aucune image specifique pour le moment."}
+                      </span>
+                    </div>
+
+                    <div className="detail-card catalog-media-summary-card">
+                      <strong>Comportement public</strong>
+                      <span className="muted-text">
+                        {storefrontHeroImageCount <= 1
+                          ? "1 image: affichage fixe. 0 image: fallback actuel conserve."
+                          : `${storefrontHeroImageCount} images: defilement automatique toutes les 4 secondes.`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {storefrontHeroImageItems.length ? (
+                    <div className="thumbnail-grid catalog-gallery-grid">
+                      {storefrontHeroImageItems.map((photoItem, index) => (
+                        <div key={photoItem.key} className="thumbnail-card">
+                          <div className="thumbnail-media">
+                            <img
+                              src={photoItem.url}
+                              alt={`Bloc photo boutique ${index + 1}`}
+                            />
+                          </div>
+                          <div className="stack">
+                            <strong>{`Image ${index + 1}`}</strong>
+                            <span className="muted-text">
+                              {photoItem.kind === "pending"
+                                ? `${photoItem.photo.width} x ${photoItem.photo.height} px - ${formatImageUploadSize(photoItem.photo.sizeBytes)}`
+                                : "Image deja enregistree"}
+                            </span>
+                            <span className="muted-text">
+                              {photoItem.kind === "pending"
+                                ? "Sera envoyee a l'enregistrement"
+                                : "Visible dans le bloc public apres sauvegarde"}
+                            </span>
+                          </div>
+                          <div className="row-actions thumbnail-actions">
+                            <button
+                              type="button"
+                              className="button subtle"
+                              onClick={() => removeStorefrontHeroImageItem(photoItem.key)}
+                            >
+                              Supprimer
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <strong>Aucune image personnalisee</strong>
+                      <span>
+                        Le bloc photo public continue d&apos;utiliser son comportement actuel tant
+                        qu&apos;aucune image n&apos;est enregistree ici.
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 <div className="row-actions">
                   <button type="submit" className="button primary" disabled={savingStorefront}>
-                    {savingStorefront ? "Enregistrement..." : "Enregistrer la boutique en ligne"}
+                    {savingStorefront
+                      ? pendingStorefrontHeroImages.length
+                        ? "Import et enregistrement..."
+                        : "Enregistrement..."
+                      : "Enregistrer la boutique en ligne"}
                   </button>
                   <button
                     type="button"

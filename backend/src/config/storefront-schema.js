@@ -10,6 +10,7 @@ export const ensureStorefrontSchema = async (pool) => {
         map_address TEXT,
         reviews_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         reviews_url TEXT,
+        hero_images_json TEXT NOT NULL DEFAULT '[]',
         slug_updated_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -19,6 +20,7 @@ export const ensureStorefrontSchema = async (pool) => {
     "ALTER TABLE storefront_settings ADD COLUMN IF NOT EXISTS map_address TEXT",
     "ALTER TABLE storefront_settings ADD COLUMN IF NOT EXISTS reviews_enabled BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE storefront_settings ADD COLUMN IF NOT EXISTS reviews_url TEXT",
+    "ALTER TABLE storefront_settings ADD COLUMN IF NOT EXISTS hero_images_json TEXT NOT NULL DEFAULT '[]'",
     "CREATE INDEX IF NOT EXISTS idx_storefront_settings_slug ON storefront_settings(slug)",
     "CREATE INDEX IF NOT EXISTS idx_storefront_settings_published ON storefront_settings(is_published)",
     `

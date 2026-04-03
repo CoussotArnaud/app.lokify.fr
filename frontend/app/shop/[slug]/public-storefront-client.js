@@ -187,6 +187,7 @@ export default function PublicStorefrontClient({
   const [showCatalog, setShowCatalog] = useState(true);
   const [activeCategoryFilter, setActiveCategoryFilter] = useState("all");
   const [featuredOffset, setFeaturedOffset] = useState(0);
+  const [activeHeroImageIndex, setActiveHeroImageIndex] = useState(0);
   const initialRequestKeyRef = useRef(
     `${slug}::${fallbackBookingForm.start_date}::${fallbackBookingForm.end_date}`
   );
@@ -369,7 +370,16 @@ export default function PublicStorefrontClient({
   const compactPeriodLabel = `${formatCompactDate(bookingForm.start_date)} - ${formatCompactDate(
     bookingForm.end_date
   )}`;
-  const heroImage = featuredProducts[0]?.thumbnail || products[0]?.thumbnail || "";
+  const configuredHeroImages = Array.isArray(storefront?.hero_images)
+    ? storefront.hero_images.filter(Boolean)
+    : [];
+  const fallbackHeroImage = featuredProducts[0]?.thumbnail || products[0]?.thumbnail || "";
+  const heroImages = configuredHeroImages.length
+    ? configuredHeroImages
+    : fallbackHeroImage
+      ? [fallbackHeroImage]
+      : [];
+  const heroImagesKey = heroImages.join("::");
   const mapAddress = storefront?.map_address || "";
   const mapEmbedUrl = mapAddress
     ? `https://www.google.com/maps?q=${encodeURIComponent(mapAddress)}&output=embed`
@@ -522,6 +532,22 @@ export default function PublicStorefrontClient({
   useEffect(() => {
     setFeaturedOffset(0);
   }, [featuredProducts.length]);
+
+  useEffect(() => {
+    setActiveHeroImageIndex(0);
+  }, [heroImagesKey]);
+
+  useEffect(() => {
+    if (heroImages.length <= 1) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setActiveHeroImageIndex((currentIndex) => (currentIndex + 1) % heroImages.length);
+    }, 4000);
+
+    return () => window.clearInterval(intervalId);
+  }, [heroImages.length, heroImagesKey]);
 
   let totalEstimatedAmount = 0;
   let totalEstimatedDeposit = 0;
@@ -1104,7 +1130,8 @@ export default function PublicStorefrontClient({
           storefrontName={storefrontName}
           storefrontLiveStatus={storefrontLiveStatus}
           providerLocation={providerLocation}
-          heroImage={heroImage}
+          heroImages={heroImages}
+          activeHeroImageIndex={activeHeroImageIndex}
           bookingForm={bookingForm}
           onBookingFieldChange={handleBookingFieldChange}
           paymentSummary={paymentSummary}

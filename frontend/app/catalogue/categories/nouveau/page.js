@@ -235,7 +235,7 @@ const buildImageUploadErrorMessage = (submissionError) => {
     submissionError.code === "request_entity_too_large" ||
     submissionError.statusCode === 413
   ) {
-    return `L'image depasse la taille maximale autorisee de ${Math.round(
+    return `Le fichier est trop volumineux. Taille maximale autorisee : ${Math.round(
       MAX_CATALOG_IMAGE_SIZE_BYTES / (1024 * 1024)
     )} Mo.`;
   }

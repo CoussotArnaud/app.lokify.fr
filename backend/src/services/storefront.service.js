@@ -13,6 +13,16 @@ import { listItems } from "./items.service.js";
 import { getResolvedSuperAdminStripeConfiguration } from "./platform-stripe-settings.service.js";
 import { notifyProviderAboutStorefrontReservation } from "./storefront-notification.service.js";
 import {
+  abortStorefrontHeroImageUploadSession,
+  completeStorefrontHeroImageUploadSession,
+  consumeStorefrontHeroImageTempUpload,
+  createStorefrontHeroImageUploadSession,
+  deleteStorefrontManagedHeroImage,
+  deleteStorefrontTemporaryUpload,
+  MAX_STOREFRONT_HERO_IMAGES,
+  uploadStorefrontHeroImagePart,
+} from "./storefront-photo-storage.service.js";
+import {
   createConnectedAccountCheckoutSession,
   retrieveConnectedAccountCheckoutSession,
 } from "./stripe-connect.service.js";
@@ -59,6 +69,14 @@ const normalizePhone = (value) => {
 const toNumber = (value) => Number(value || 0);
 const toMoneyCents = (value) => Math.max(0, Math.round(toNumber(value) * 100));
 const fromMoneyCents = (value) => Number((Number(value || 0) / 100).toFixed(2));
+const parseJsonList = (value, fallback = []) => {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch (_error) {
+    return fallback;
+  }
+};
 const parseJsonObject = (value) => {
   try {
     const parsed = JSON.parse(value || "{}");
@@ -77,6 +95,86 @@ const normalizeStorefrontSlug = (value) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, storefrontSlugMaxLength)
     .replace(/-+$/g, "");
+
+const normalizeStorefrontHeroImageEntry = (entry) => {
+  const isObjectEntry = entry && typeof entry === "object" && !Array.isArray(entry);
+  const url = normalizeOptionalStorefrontUrl(isObjectEntry ? entry.url : entry);
+
+  if (!url) {
+    return null;
+  }
+
+  const width = Number(isObjectEntry ? entry.width : 0);
+  const height = Number(isObjectEntry ? entry.height : 0);
+  const sizeBytes = Number(
+    isObjectEntry ? entry.size_bytes ?? entry.sizeBytes : 0
+  );
+
+  return {
+    url,
+    width: Number.isFinite(width) && width > 0 ? width : null,
+    height: Number.isFinite(height) && height > 0 ? height : null,
+    size_bytes: Number.isFinite(sizeBytes) && sizeBytes > 0 ? sizeBytes : null,
+    mime_type: normalizeOptionalStorefrontText(
+      isObjectEntry ? entry.mime_type ?? entry.mimeType : null
+    ),
+    original_file_name: normalizeOptionalStorefrontText(
+      isObjectEntry ? entry.original_file_name ?? entry.originalFileName : null
+    ),
+    source_mime_type: normalizeOptionalStorefrontText(
+      isObjectEntry ? entry.source_mime_type ?? entry.sourceMimeType : null
+    ),
+  };
+};
+
+const normalizeStorefrontHeroImageEntries = (value) => {
+  const entries = [];
+  const seen = new Set();
+
+  (Array.isArray(value) ? value : []).forEach((entry) => {
+    const normalizedEntry = normalizeStorefrontHeroImageEntry(entry);
+
+    if (!normalizedEntry || seen.has(normalizedEntry.url)) {
+      return;
+    }
+
+    seen.add(normalizedEntry.url);
+    entries.push(normalizedEntry);
+  });
+
+  return entries;
+};
+
+const normalizeStorefrontHeroImageUrls = (value) =>
+  normalizeStorefrontHeroImageEntries(
+    (Array.isArray(value) ? value : []).map((entry) =>
+      entry && typeof entry === "object" && !Array.isArray(entry) ? entry.url : entry
+    )
+  ).map((entry) => entry.url);
+
+const normalizeStorefrontHeroImageUploads = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((entry) => ({
+      client_id: normalizeOptionalStorefrontText(
+        entry?.client_id ?? entry?.clientId ?? null
+      ),
+      temp_object_key: normalizeOptionalStorefrontText(
+        entry?.temp_object_key ?? entry?.tempObjectKey ?? null
+      ),
+      file_name: normalizeOptionalStorefrontText(
+        entry?.file_name ?? entry?.fileName ?? null
+      ),
+      mime_type: normalizeOptionalStorefrontText(
+        entry?.mime_type ?? entry?.mimeType ?? null
+      ),
+      size_bytes: Number(entry?.size_bytes ?? entry?.sizeBytes ?? 0),
+    }))
+    .filter((entry) => entry.temp_object_key);
+
+const normalizeStorefrontHeroImageSequence = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((entry) => normalizeWhitespace(entry))
+    .filter(Boolean);
 
 const buildStorefrontPaymentSummary = async (userId) => {
   const settings = await getCustomerPaymentSettingsSnapshot(userId);
@@ -292,22 +390,31 @@ const allocateMoneyCents = (baseValues, targetTotalCents) => {
   return floorAllocations;
 };
 
-const serializeStorefrontSettings = (row) => ({
-  user_id: row.user_id,
-  slug: row.slug,
-  is_published: Boolean(row.is_published),
-  reservation_approval_mode:
-    row.reservation_approval_mode && allowedStorefrontApprovalModes.has(row.reservation_approval_mode)
-      ? row.reservation_approval_mode
-      : "manual",
-  map_enabled: Boolean(row.map_enabled),
-  map_address: row.map_address || "",
-  reviews_enabled: Boolean(row.reviews_enabled),
-  reviews_url: row.reviews_url || "",
-  slug_updated_at: row.slug_updated_at || null,
-  created_at: row.created_at || null,
-  updated_at: row.updated_at || null,
-});
+const serializeStorefrontSettings = (row) => {
+  const heroImages = normalizeStorefrontHeroImageEntries(
+    parseJsonList(row.hero_images_json, [])
+  );
+
+  return {
+    user_id: row.user_id,
+    slug: row.slug,
+    is_published: Boolean(row.is_published),
+    reservation_approval_mode:
+      row.reservation_approval_mode &&
+      allowedStorefrontApprovalModes.has(row.reservation_approval_mode)
+        ? row.reservation_approval_mode
+        : "manual",
+    map_enabled: Boolean(row.map_enabled),
+    map_address: row.map_address || "",
+    reviews_enabled: Boolean(row.reviews_enabled),
+    reviews_url: row.reviews_url || "",
+    hero_images: heroImages,
+    hero_image_urls: heroImages.map((entry) => entry.url),
+    slug_updated_at: row.slug_updated_at || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+};
 
 const buildStorefrontDisplayName = (owner) =>
   normalizeWhitespace(owner?.commercial_name || owner?.company_name || owner?.full_name || "") ||
@@ -327,6 +434,122 @@ const joinSlugWithSuffix = (baseSlug, suffix) => {
   const maxBaseLength = storefrontSlugMaxLength - separator.length - suffix.length;
   const trimmedBase = baseSlug.slice(0, Math.max(maxBaseLength, storefrontSlugMinLength)).replace(/-+$/g, "");
   return `${trimmedBase}${separator}${suffix}`;
+};
+
+const buildOrderedStorefrontHeroImages = ({
+  retainedImages = [],
+  uploadedImages = [],
+  imageSequence = [],
+}) => {
+  const orderedImages = [];
+  const seen = new Set();
+  const retainedImageMap = new Map(retainedImages.map((image) => [image.url, image]));
+  const uploadedImageMap = new Map(
+    uploadedImages
+      .filter((image) => image.sequenceKey)
+      .map((image) => [image.sequenceKey, image.image])
+  );
+
+  imageSequence.forEach((sequenceEntry) => {
+    const retainedImage = retainedImageMap.get(sequenceEntry);
+    const uploadedImage = uploadedImageMap.get(sequenceEntry);
+    const resolvedImage = retainedImage || uploadedImage || null;
+
+    if (!resolvedImage || seen.has(resolvedImage.url)) {
+      return;
+    }
+
+    seen.add(resolvedImage.url);
+    orderedImages.push(resolvedImage);
+  });
+
+  [...retainedImages, ...uploadedImages.map((entry) => entry.image)].forEach((image) => {
+    if (!image || seen.has(image.url)) {
+      return;
+    }
+
+    seen.add(image.url);
+    orderedImages.push(image);
+  });
+
+  return orderedImages;
+};
+
+const deleteUnusedStorefrontHeroImages = async (removedImages = []) => {
+  for (const image of removedImages) {
+    const imageUrl = image?.url || image;
+    if (!imageUrl) {
+      continue;
+    }
+
+    try {
+      await deleteStorefrontManagedHeroImage(imageUrl);
+    } catch (_error) {
+      // Ignore cleanup failures to avoid blocking storefront settings updates.
+    }
+  }
+};
+
+const syncStorefrontHeroImages = async (
+  userId,
+  { currentImages = [], retainedImages, imageUploads = [], imageSequence = [] } = {}
+) => {
+  const nextRetainedImageUrls =
+    retainedImages === undefined
+      ? currentImages.map((image) => image.url)
+      : normalizeStorefrontHeroImageUrls(retainedImages);
+  const retainedImageMap = new Map(currentImages.map((image) => [image.url, image]));
+  const nextRetainedImages = nextRetainedImageUrls
+    .map((imageUrl) => retainedImageMap.get(imageUrl))
+    .filter(Boolean);
+  const normalizedImageUploads = normalizeStorefrontHeroImageUploads(imageUploads);
+  const normalizedImageSequence = normalizeStorefrontHeroImageSequence(imageSequence);
+
+  if (nextRetainedImages.length + normalizedImageUploads.length > MAX_STOREFRONT_HERO_IMAGES) {
+    throw new HttpError(
+      400,
+      `Vous ne pouvez pas ajouter plus de ${MAX_STOREFRONT_HERO_IMAGES} images sur ce bloc photo.`,
+      { code: "storefront_image_limit" }
+    );
+  }
+
+  const uploadedImages = [];
+
+  try {
+    for (const imageUpload of normalizedImageUploads) {
+      const uploadedImage = await consumeStorefrontHeroImageTempUpload({
+        userId,
+        tempObjectKey: imageUpload.temp_object_key,
+        fileName: imageUpload.file_name,
+        mimeType: imageUpload.mime_type,
+      });
+
+      uploadedImages.push({
+        image: normalizeStorefrontHeroImageEntry(uploadedImage),
+        sequenceKey: imageUpload.client_id ? `upload:${imageUpload.client_id}` : null,
+      });
+    }
+  } catch (error) {
+    await deleteUnusedStorefrontHeroImages(uploadedImages.map((entry) => entry.image));
+    throw error;
+  }
+
+  const finalImages = normalizedImageSequence.length
+    ? buildOrderedStorefrontHeroImages({
+        retainedImages: nextRetainedImages,
+        uploadedImages,
+        imageSequence: normalizedImageSequence,
+      })
+    : [...nextRetainedImages, ...uploadedImages.map((entry) => entry.image)];
+  const removedImages = currentImages.filter(
+    (currentImage) => !finalImages.some((finalImage) => finalImage.url === currentImage.url)
+  );
+
+  return {
+    finalImages: normalizeStorefrontHeroImageEntries(finalImages),
+    removedImages,
+    uploadedImages: uploadedImages.map((entry) => entry.image),
+  };
 };
 
 const getStorefrontOwnerRow = async (userId) => {
@@ -464,6 +687,9 @@ export const updateStorefrontSettings = async (userId, payload = {}) => {
   const payloadHasMapAddress = Object.prototype.hasOwnProperty.call(payload, "map_address");
   const payloadHasReviewsEnabled = Object.prototype.hasOwnProperty.call(payload, "reviews_enabled");
   const payloadHasReviewsUrl = Object.prototype.hasOwnProperty.call(payload, "reviews_url");
+  const payloadHasHeroImages = Object.prototype.hasOwnProperty.call(payload, "hero_images");
+  const payloadHasHeroImageUploads = Object.prototype.hasOwnProperty.call(payload, "hero_image_uploads");
+  const payloadHasHeroImageSequence = Object.prototype.hasOwnProperty.call(payload, "hero_image_sequence");
 
   let nextSlug = currentSlug;
   let nextSlugUpdatedAt = currentSettings.slug_updated_at;
@@ -514,34 +740,59 @@ export const updateStorefrontSettings = async (userId, payload = {}) => {
     throw new HttpError(400, "Le mode de validation boutique est invalide.");
   }
 
-  const { rows } = await query(
-    `
-      UPDATE storefront_settings
-      SET slug = $2,
-          is_published = $3,
-          reservation_approval_mode = $4,
-          slug_updated_at = $5,
-          map_enabled = $6,
-          map_address = $7,
-          reviews_enabled = $8,
-          reviews_url = $9
-      WHERE user_id = $1
-      RETURNING *
-    `,
-    [
-      userId,
-      nextSlug,
-      nextPublished,
-      nextApprovalMode,
-      nextSlugUpdatedAt,
-      nextMapEnabled,
-      nextMapAddress,
-      nextReviewsEnabled,
-      nextReviewsUrl,
-    ]
-  );
+  const shouldSyncHeroImages =
+    payloadHasHeroImages || payloadHasHeroImageUploads || payloadHasHeroImageSequence;
+  const heroImageSyncResult = shouldSyncHeroImages
+    ? await syncStorefrontHeroImages(userId, {
+        currentImages: currentSettings.hero_images,
+        retainedImages: payloadHasHeroImages
+          ? payload.hero_images
+          : currentSettings.hero_image_urls,
+        imageUploads: payloadHasHeroImageUploads ? payload.hero_image_uploads : [],
+        imageSequence: payloadHasHeroImageSequence ? payload.hero_image_sequence : [],
+      })
+    : {
+        finalImages: currentSettings.hero_images,
+        removedImages: [],
+        uploadedImages: [],
+      };
 
-  return serializeStorefrontSettings(rows[0]);
+  try {
+    const { rows } = await query(
+      `
+        UPDATE storefront_settings
+        SET slug = $2,
+            is_published = $3,
+            reservation_approval_mode = $4,
+            slug_updated_at = $5,
+            map_enabled = $6,
+            map_address = $7,
+            reviews_enabled = $8,
+            reviews_url = $9,
+            hero_images_json = $10
+        WHERE user_id = $1
+        RETURNING *
+      `,
+      [
+        userId,
+        nextSlug,
+        nextPublished,
+        nextApprovalMode,
+        nextSlugUpdatedAt,
+        nextMapEnabled,
+        nextMapAddress,
+        nextReviewsEnabled,
+        nextReviewsUrl,
+        JSON.stringify(heroImageSyncResult.finalImages),
+      ]
+    );
+
+    await deleteUnusedStorefrontHeroImages(heroImageSyncResult.removedImages);
+    return serializeStorefrontSettings(rows[0]);
+  } catch (error) {
+    await deleteUnusedStorefrontHeroImages(heroImageSyncResult.uploadedImages);
+    throw error;
+  }
 };
 
 const resolveStorefrontOwnerBySlug = async (slug, { requirePublished = false } = {}) => {
@@ -921,6 +1172,7 @@ const buildStorefrontPayload = async (
       map_address: settings.map_address || "",
       reviews_enabled: settings.reviews_enabled,
       reviews_url: settings.reviews_url || "",
+      hero_images: settings.hero_image_urls,
       path: `/shop/${settings.slug}`,
     },
     start: planning.start,
@@ -1011,6 +1263,65 @@ export const getPublicStorefrontPreview = async (slug, { start, end }) => {
     storefrontSettings: storefront.settings,
     storefrontOwner: storefront.owner,
   });
+};
+
+export const startStorefrontHeroImageUpload = async (userId, payload = {}) =>
+  createStorefrontHeroImageUploadSession({
+    userId,
+    fileName: payload.file_name ?? payload.fileName,
+    mimeType: payload.mime_type ?? payload.mimeType,
+    sizeBytes: payload.size_bytes ?? payload.sizeBytes,
+  });
+
+export const uploadStorefrontHeroImageChunk = async (
+  userId,
+  uploadId,
+  payload = {}
+) =>
+  uploadStorefrontHeroImagePart({
+    userId,
+    uploadId,
+    objectKey: payload.object_key ?? payload.objectKey,
+    partNumber: payload.part_number ?? payload.partNumber,
+    dataBase64: payload.data_base64 ?? payload.dataBase64,
+  });
+
+export const finalizeStorefrontHeroImageUpload = async (
+  userId,
+  uploadId,
+  payload = {}
+) =>
+  completeStorefrontHeroImageUploadSession({
+    userId,
+    uploadId,
+    objectKey: payload.object_key ?? payload.objectKey,
+    parts: payload.parts,
+    clientId: payload.client_id ?? payload.clientId,
+    fileName: payload.file_name ?? payload.fileName,
+    mimeType: payload.mime_type ?? payload.mimeType,
+    sizeBytes: payload.size_bytes ?? payload.sizeBytes,
+  });
+
+export const cancelStorefrontHeroImageUpload = async (userId, payload = {}) => {
+  const uploadId = payload.upload_id ?? payload.uploadId;
+  const objectKey = payload.object_key ?? payload.objectKey;
+
+  if (uploadId) {
+    return abortStorefrontHeroImageUploadSession({
+      userId,
+      uploadId,
+      objectKey,
+    });
+  }
+
+  if (objectKey) {
+    return deleteStorefrontTemporaryUpload({
+      userId,
+      objectKey,
+    });
+  }
+
+  return false;
 };
 
 const buildStorefrontLineNotes = ({
