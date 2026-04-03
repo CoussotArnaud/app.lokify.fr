@@ -18,7 +18,10 @@ import {
 } from "../../lib/image-upload";
 import { defaultReservationStatuses } from "../../lib/lokify-data";
 import { buildStorefrontPath, buildStorefrontUrl } from "../../lib/storefront";
-import { normalizeStorefrontHeroImageUrls } from "../../lib/storefront-hero-images";
+import {
+  buildStorefrontHeroImageDisplayUrl,
+  normalizeStorefrontHeroImageUrls,
+} from "../../lib/storefront-hero-images";
 import {
   deleteStorefrontTemporaryHeroImage,
   uploadStorefrontHeroImage,
@@ -1731,7 +1734,7 @@ function SettingsPageContent() {
                         <article key={photoItem.key} className="storefront-hero-thumb-card">
                           <div className="storefront-hero-thumb-media">
                             <img
-                              src={photoItem.url}
+                              src={buildStorefrontHeroImageDisplayUrl(photoItem.url)}
                               alt={`Bloc photo boutique ${index + 1}`}
                             />
                           </div>

@@ -379,6 +379,32 @@ export const consumeStorefrontHeroImageTempUpload = async ({
 
 export const isManagedStorefrontHeroImageUrl = (photoUrl) => isManagedR2PublicUrl(photoUrl);
 
+export const downloadStorefrontManagedHeroImage = async (photoUrl) => {
+  const objectKey = extractR2ObjectKeyFromPublicUrl(photoUrl);
+  if (!objectKey || !objectKey.startsWith(`${FINAL_UPLOAD_PREFIX}/`)) {
+    throw new HttpError(404, "Image introuvable.", {
+      code: "storefront_image_not_found",
+    });
+  }
+
+  try {
+    const downloadedObject = await downloadR2Object(objectKey);
+    return {
+      body: downloadedObject.body,
+      contentType: downloadedObject.contentType || "image/webp",
+      cacheControl: "public, max-age=31536000, immutable",
+    };
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+
+    throw new HttpError(404, "Image introuvable.", {
+      code: "storefront_image_not_found",
+    });
+  }
+};
+
 export const deleteStorefrontManagedHeroImage = async (photoUrl) => {
   const objectKey = extractR2ObjectKeyFromPublicUrl(photoUrl);
   if (!objectKey) {

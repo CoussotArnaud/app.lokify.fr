@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import {
+  getPublicStorefrontHeroImage,
   getPublicStorefront,
   postFinalizePublicStorefrontCheckout,
   postPublicStorefrontCheckout,
@@ -17,6 +18,7 @@ const storefrontRequestRateLimit = createRateLimitMiddleware({
   code: "public_storefront_request_rate_limited",
 });
 
+router.get("/hero-images", getPublicStorefrontHeroImage);
 router.get("/:slug", getPublicStorefront);
 router.post("/:slug/requests", storefrontRequestRateLimit, postPublicStorefrontRequest);
 router.post("/:slug/checkout", storefrontRequestRateLimit, postPublicStorefrontCheckout);

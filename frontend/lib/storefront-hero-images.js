@@ -1,3 +1,7 @@
+import { API_URL } from "./api";
+
+const managedStorefrontHeroPathPattern = /\/storefronts\//i;
+
 export const normalizeStorefrontHeroImageUrls = (source) => {
   const candidateLists = [];
 
@@ -34,4 +38,28 @@ export const normalizeStorefrontHeroImageUrls = (source) => {
   });
 
   return urls;
+};
+
+export const buildStorefrontHeroImageDisplayUrl = (sourceUrl) => {
+  const normalizedUrl = String(sourceUrl || "").trim();
+
+  if (!normalizedUrl) {
+    return "";
+  }
+
+  if (/^\/?api\/public\/storefront\/hero-images/i.test(normalizedUrl)) {
+    return normalizedUrl;
+  }
+
+  try {
+    const candidateUrl = new URL(normalizedUrl);
+
+    if (!/^https?:$/i.test(candidateUrl.protocol) || !managedStorefrontHeroPathPattern.test(candidateUrl.pathname)) {
+      return normalizedUrl;
+    }
+
+    return `${API_URL}/public/storefront/hero-images?src=${encodeURIComponent(normalizedUrl)}`;
+  } catch (_error) {
+    return normalizedUrl;
+  }
 };

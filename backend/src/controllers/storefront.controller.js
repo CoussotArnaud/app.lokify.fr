@@ -6,6 +6,7 @@ import {
   finalizeStorefrontHeroImageUpload,
   finalizePublicStorefrontCheckoutSession,
   finalizeStorefrontCheckoutSession,
+  getPublicStorefrontHeroImageAsset,
   getPublicStorefrontPreview,
   getStorefrontSettings,
   getStorefrontPreview,
@@ -69,6 +70,14 @@ export const deleteProviderStorefrontHeroImageUpload = asyncHandler(async (req, 
 export const getPublicStorefront = asyncHandler(async (req, res) => {
   const storefront = await getPublicStorefrontPreview(req.params.slug, req.query);
   res.json(storefront);
+});
+
+export const getPublicStorefrontHeroImage = asyncHandler(async (req, res) => {
+  const asset = await getPublicStorefrontHeroImageAsset(req.query.src);
+  res.set("Content-Type", asset.contentType);
+  res.set("Cache-Control", asset.cacheControl);
+  res.set("Content-Length", String(asset.body.length || 0));
+  res.send(asset.body);
 });
 
 export const postPublicStorefrontRequest = asyncHandler(async (req, res) => {

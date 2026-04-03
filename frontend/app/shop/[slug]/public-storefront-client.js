@@ -17,7 +17,10 @@ import {
 import StatusPill from "../../../components/status-pill";
 import { apiRequest } from "../../../lib/api";
 import { formatCurrency } from "../../../lib/date";
-import { normalizeStorefrontHeroImageUrls } from "../../../lib/storefront-hero-images";
+import {
+  buildStorefrontHeroImageDisplayUrl,
+  normalizeStorefrontHeroImageUrls,
+} from "../../../lib/storefront-hero-images";
 import { buildStorefrontPath } from "../../../lib/storefront";
 import {
   buildDefaultBookingForm,
@@ -371,7 +374,9 @@ export default function PublicStorefrontClient({
   const compactPeriodLabel = `${formatCompactDate(bookingForm.start_date)} - ${formatCompactDate(
     bookingForm.end_date
   )}`;
-  const configuredHeroImages = normalizeStorefrontHeroImageUrls(storefront);
+  const configuredHeroImages = normalizeStorefrontHeroImageUrls(storefront).map(
+    buildStorefrontHeroImageDisplayUrl
+  );
   const fallbackHeroImage = featuredProducts[0]?.thumbnail || products[0]?.thumbnail || "";
   const heroImages = configuredHeroImages.length
     ? configuredHeroImages

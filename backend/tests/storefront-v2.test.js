@@ -16,6 +16,7 @@ import {
 import { createReservation } from "../src/services/reservations.service.js";
 import {
   finalizeStorefrontHeroImageUpload,
+  getPublicStorefrontHeroImageAsset,
   getPublicStorefrontPreview,
   getStorefrontPreview,
   getStorefrontSettings,
@@ -499,6 +500,43 @@ test("storefront hero images persist after upload, reload, public read and repla
 
     assert.deepEqual(removedSettings.hero_images, []);
     assert.deepEqual(removedPublicPreview.storefront.hero_images, []);
+  } finally {
+    await updateStorefrontSettings(userId, {
+      slug: originalSettings.slug,
+      is_published: originalSettings.is_published,
+      reservation_approval_mode: originalSettings.reservation_approval_mode,
+      map_enabled: originalSettings.map_enabled,
+      map_address: originalSettings.map_address,
+      reviews_enabled: originalSettings.reviews_enabled,
+      reviews_url: originalSettings.reviews_url,
+      hero_images: originalHeroImages,
+      hero_image_sequence: originalHeroImages,
+    });
+  }
+});
+
+test("storefront public hero image asset can be downloaded through the public asset service", async () => {
+  const userId = await getDemoUserId();
+  const originalSettings = await getStorefrontSettings(userId);
+  const originalHeroImages = [...(originalSettings.hero_image_urls || [])];
+
+  try {
+    const upload = await buildStorefrontHeroUpload(userId, `hero-${crypto.randomUUID().slice(0, 8)}`);
+    const savedSettings = await updateStorefrontSettings(userId, {
+      slug: originalSettings.slug,
+      is_published: true,
+      reservation_approval_mode: originalSettings.reservation_approval_mode,
+      hero_images: [],
+      hero_image_uploads: [upload],
+      hero_image_sequence: [`upload:${upload.client_id}`],
+    });
+
+    const asset = await getPublicStorefrontHeroImageAsset(savedSettings.hero_images[0].url);
+
+    assert.equal(Buffer.isBuffer(asset.body), true);
+    assert.equal(asset.body.byteLength > 0, true);
+    assert.match(asset.contentType, /^image\//);
+    assert.equal(asset.cacheControl, "public, max-age=31536000, immutable");
   } finally {
     await updateStorefrontSettings(userId, {
       slug: originalSettings.slug,

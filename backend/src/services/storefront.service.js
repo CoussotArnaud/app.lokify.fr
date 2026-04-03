@@ -17,6 +17,7 @@ import {
   completeStorefrontHeroImageUploadSession,
   consumeStorefrontHeroImageTempUpload,
   createStorefrontHeroImageUploadSession,
+  downloadStorefrontManagedHeroImage,
   deleteStorefrontManagedHeroImage,
   deleteStorefrontTemporaryUpload,
   MAX_STOREFRONT_HERO_IMAGES,
@@ -1324,6 +1325,9 @@ export const cancelStorefrontHeroImageUpload = async (userId, payload = {}) => {
 
   return false;
 };
+
+export const getPublicStorefrontHeroImageAsset = async (photoUrl) =>
+  downloadStorefrontManagedHeroImage(photoUrl);
 
 const buildStorefrontLineNotes = ({
   packName = "",
