@@ -217,6 +217,18 @@ const buildStorefrontHeroImageErrorMessage = (submissionError) => {
   return submissionError.message || "L'image n'a pas pu etre envoyee.";
 };
 
+const hasStorefrontStatusValue = (value) => {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+
+  return Boolean(value);
+};
+
 const SettingsPageFallback = () => (
   <AppShell>
     <div className="page-stack">
@@ -772,6 +784,17 @@ function SettingsPageContent() {
   const onlinePayment = paymentSettings?.onlinePayment || null;
   const paymentOverview = paymentSettings?.overview || null;
   const storefrontHeroImageCount = storefrontHeroImageItems.length;
+  const storefrontMapStatusActive = [
+    storefrontForm.map_address,
+    storefrontSettings?.map_latitude,
+    storefrontSettings?.map_longitude,
+    storefrontSettings?.map_lat,
+    storefrontSettings?.map_lng,
+    storefrontSettings?.latitude,
+    storefrontSettings?.longitude,
+  ].some(hasStorefrontStatusValue);
+  const storefrontReviewsStatusActive = hasStorefrontStatusValue(storefrontForm.reviews_url);
+  const storefrontPhotoStatusActive = storefrontHeroImageCount > 0;
 
   return (
     <AppShell>
@@ -1357,27 +1380,21 @@ function SettingsPageContent() {
                 </article>
                 <article className="detail-card">
                   <strong>Carte</strong>
-                  <span className="muted-text">
-                    {storefrontSettings?.map_enabled
-                      ? storefrontSettings?.map_address || "Activee sans adresse"
-                      : "Masquee"}
-                  </span>
+                  <StatusPill tone={storefrontMapStatusActive ? "success" : "neutral"}>
+                    {storefrontMapStatusActive ? "Actif" : "Inactif"}
+                  </StatusPill>
                 </article>
                 <article className="detail-card">
                   <strong>Avis Google</strong>
-                  <span className="muted-text">
-                    {storefrontSettings?.reviews_enabled
-                      ? storefrontSettings?.reviews_url || "Actives sans lien"
-                      : "Masques"}
-                  </span>
+                  <StatusPill tone={storefrontReviewsStatusActive ? "success" : "neutral"}>
+                    {storefrontReviewsStatusActive ? "Actif" : "Inactif"}
+                  </StatusPill>
                 </article>
                 <article className="detail-card">
                   <strong>Bloc photo</strong>
-                  <span className="muted-text">
-                    {storefrontHeroImageCount
-                      ? `${storefrontHeroImageCount} image(s) sur ${MAX_STOREFRONT_HERO_IMAGES}`
-                      : "Fallback actuel conserve"}
-                  </span>
+                  <StatusPill tone={storefrontPhotoStatusActive ? "success" : "neutral"}>
+                    {storefrontPhotoStatusActive ? "Actif" : "Inactif"}
+                  </StatusPill>
                 </article>
               </div>
 
