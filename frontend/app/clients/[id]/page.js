@@ -17,6 +17,50 @@ const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 
 const getProfileField = (profile, key, fallback = "") => (hasOwn(profile, key) ? profile[key] : fallback);
 
+const normalizeRouteParam = (value) => {
+  if (Array.isArray(value)) {
+    return String(value[0] || "").trim();
+  }
+
+  return String(value || "").trim();
+};
+
+const normalizeClientText = (value) => String(value ?? "").trim();
+
+const buildClientDisplayName = (client) => {
+  const explicitFullName = normalizeClientText(client?.full_name);
+
+  if (explicitFullName) {
+    return explicitFullName;
+  }
+
+  const joinedName = [normalizeClientText(client?.first_name), normalizeClientText(client?.last_name)]
+    .filter(Boolean)
+    .join(" ");
+
+  if (joinedName) {
+    return joinedName;
+  }
+
+  return normalizeClientText(client?.email) || "Client sans nom";
+};
+
+const buildClientInitials = (displayName) => {
+  const initials = String(displayName || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
+
+  return initials || "CL";
+};
+
+const normalizeAmount = (value) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+};
+
 const formatFileSize = (value) => {
   const bytes = Number(value || 0);
 
@@ -48,6 +92,7 @@ export default function ClientDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const workspace = useLokifyWorkspace();
+  const clientId = normalizeRouteParam(params?.id);
   const reservationStatusMeta = workspace.reservationStatusMeta;
   const [clientProfiles, setClientProfiles] = useState({});
   const [clientRecord, setClientRecord] = useState(null);
@@ -75,13 +120,24 @@ export default function ClientDetailPage() {
     let cancelled = false;
 
     const loadClient = async () => {
+      if (!clientId) {
+        if (!cancelled) {
+          setClientError("Identifiant client invalide.");
+          setClientRecord(null);
+          setClientReservations([]);
+          setClientLoading(false);
+        }
+
+        return;
+      }
+
       setClientLoading(true);
       setClientError("");
 
       try {
         const [clientResponse, reservationsResponse] = await Promise.all([
-          workspace.getClientDetail(params.id),
-          workspace.listReservations({ client_id: params.id }),
+          workspace.getClientDetail(clientId),
+          workspace.listReservations({ client_id: clientId }),
         ]);
 
         if (!cancelled) {
@@ -106,10 +162,10 @@ export default function ClientDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [params.id]);
+  }, [clientId]);
 
   const baseClient = clientRecord;
-  const profile = clientProfiles[params.id] || {};
+  const profile = clientId ? clientProfiles[clientId] || {} : {};
   const contact = baseClient
     ? resolveClientPhoneFields({
         country: getProfileField(profile, "country"),
@@ -120,8 +176,9 @@ export default function ClientDetailPage() {
   const client = baseClient
     ? {
         ...baseClient,
+        full_name: buildClientDisplayName(baseClient),
         avatar_data: profile.avatar_data || "",
-        client_type: profile.client_type || baseClient.segment,
+        client_type: profile.client_type || baseClient.segment || "Particulier",
         country_code: contact?.country_code || "",
         phone_number: contact?.phone_number || "",
         address_line: profile.address || baseClient.address || "",
@@ -131,6 +188,11 @@ export default function ClientDetailPage() {
       }
     : null;
   const reservations = clientReservations;
+  const clientInitials = buildClientInitials(client?.full_name);
+  const totalReservationRevenue = reservations.reduce(
+    (sum, reservation) => sum + normalizeAmount(reservation.total_amount),
+    0
+  );
   const isArchived = Boolean(client?.archive?.isArchived);
   const backHref = searchParams.get("scope") === "archived" ? "/clients?scope=archived" : "/clients";
 
@@ -330,7 +392,7 @@ export default function ClientDetailPage() {
               <Panel title="Coordonnées" description="Informations de contact et contexte relationnel.">
                 <div className="avatar-stack">
                   <div className="avatar-preview">
-                    {client.avatar_data ? <img src={client.avatar_data} alt={client.full_name} /> : client.full_name.slice(0, 2).toUpperCase()}
+                    {client.avatar_data ? <img src={client.avatar_data} alt={client.full_name} /> : clientInitials}
                   </div>
                   <div className="stack">
                     <strong>{client.full_name}</strong>
@@ -343,7 +405,7 @@ export default function ClientDetailPage() {
                 <div className="detail-grid">
                   <div className="detail-card">
                     <strong>Email</strong>
-                    <span>{client.email}</span>
+                    <span>{client.email || "Non renseigne"}</span>
                   </div>
                   <div className="detail-card">
                     <strong>Téléphone</strong>
@@ -374,7 +436,7 @@ export default function ClientDetailPage() {
                     <span className="muted-text">réservation(s)</span>
                   </div>
                   <div className="detail-card">
-                    <strong>{formatCurrency(client.metrics?.totalRevenue || reservations.reduce((sum, reservation) => sum + reservation.total_amount, 0))}</strong>
+                    <strong>{formatCurrency(client.metrics?.totalRevenue || totalReservationRevenue)}</strong>
                     <span className="muted-text">montant cumulé</span>
                   </div>
                   <div className="detail-card">
