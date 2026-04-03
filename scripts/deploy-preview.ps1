@@ -100,7 +100,8 @@ if (-not $BackendOnly) {
   }
 
   $frontendArgs = @(
-    "--build-env", "NEXT_PUBLIC_API_URL=$BackendUrl/api"
+    "--build-env", "NEXT_PUBLIC_API_URL=$BackendUrl/api",
+    "--build-env", "API_PROXY_TARGET=$BackendUrl/api"
   )
 
   $FrontendUrl = Invoke-VercelPreviewDeploy -LinkDir $frontendLinkDir -Arguments $frontendArgs

@@ -106,6 +106,17 @@ const normalizeNumber = (value, fallback = 0) => {
   return Number.isFinite(parsedValue) ? parsedValue : fallback;
 };
 
+const normalizeStorefrontHeroImages = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((entry) => {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        return String(entry.url || "").trim();
+      }
+
+      return String(entry || "").trim();
+    })
+    .filter(Boolean);
+
 const buildCartEntryId = () =>
   globalThis.crypto?.randomUUID?.() ||
   `cart-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -370,9 +381,7 @@ export default function PublicStorefrontClient({
   const compactPeriodLabel = `${formatCompactDate(bookingForm.start_date)} - ${formatCompactDate(
     bookingForm.end_date
   )}`;
-  const configuredHeroImages = Array.isArray(storefront?.hero_images)
-    ? storefront.hero_images.filter(Boolean)
-    : [];
+  const configuredHeroImages = normalizeStorefrontHeroImages(storefront?.hero_images);
   const fallbackHeroImage = featuredProducts[0]?.thumbnail || products[0]?.thumbnail || "";
   const heroImages = configuredHeroImages.length
     ? configuredHeroImages

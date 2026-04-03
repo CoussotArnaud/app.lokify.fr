@@ -1,7 +1,9 @@
 const normalizeUrl = (value) => String(value || "").trim().replace(/\/+$/, "");
 
 const defaultApiProxyTarget =
-  process.env.NODE_ENV === "production"
+  process.env.NEXT_PUBLIC_API_URL
+    ? process.env.NEXT_PUBLIC_API_URL
+    : process.env.NODE_ENV === "production"
     ? "https://api.app.lokify.fr/api"
     : "http://localhost:4000/api";
 
